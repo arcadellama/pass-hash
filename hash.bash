@@ -15,53 +15,51 @@ HASH_ECHO="${PASSWORD_STORE_HASH_ECHO:-}"
 
 #### Helper Functions ####
 hash_die() {
-  hash_reset_stty
 	echo "[$HASH_PROGRAM] $*" >&2
 	exit 1
 }
 
-hash_reset_stty() {
-  [[ -t 0 ]] && stty $HASH_STTY >/dev/null 2>&1
-}
-
 hash_sum() {
   local algo_name algo_command algo_bit
-  ${a#*:}
-  algo_name="${HASH_ALGORITHM%:*}"
-  algo_command="${HASH_ALGORITHM#*:}"
-  if [ -n "$algo_command" ]; then
-    $algo_command | cut -d' ' -f1 || hash_die "Error: $algo_command not found."
-    return
-  fi
 
-  algo_name="$(echo "$algo_name" | tr "[:lower:]" "[:upper:]")"
-  case "$algo_name" 
-    in SHA*)
-      algo_bit="${algo_name#SHA}"
+  case "$HASH_ALGORITHM" in
+    *:*)
+      algo_name="${HASH_ALGORITHM%:*}"
+      algo_command="${HASH_ALGORITHM#*:}"
+      $algo_command | cut -d' ' -f1 || exit 1
+      ;;
+    SHA*|sha*)
+      HASH_ALGORITHM="$(echo "$HASH_ALGORITHM" | tr '[[:lower:]]' '[[:upper:]]')"
+      algo_bit="${HASH_ALGORITHM#SHA}"
       if command -v shasum >/dev/null 2>&1; then
-        shasum -a "$algo_bit" | cut -d' ' -f1
+        shasum -a "$algo_bit" | cut -d' ' -f1 || exit 1
       elif
         command -v sha"${algo_bit}"sum >/dev/null 2>&1; then
-        sha"${algo_bit}"sum | cut -d' ' -f1
+        sha"${algo_bit}"sum | cut -d' ' -f1 || exit 1
       elif
         command -v sha"${bitdepth}" >/dev/null 2>&1; then
-        sha"${algo_bit}" -r | cut -d' ' -f1
+        sha"${algo_bit}" -r | cut -d' ' -f1 || exit 1
+      else
+        hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
       fi
       ;;
   esac
-
-  hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
 }
 
 hash_secure_input() {
-  if [[ -t 0 ]]; then
-    trap 'hash_reset_stty' INT
-		echo "Enter $1 and press Ctrl+D when finished:" >&2
+  local pass_name pass_name_again
+  if [[ ! -t 0 ]] || [ "$HASH_ECHO" == 'true' ]; then
+    read -r -p "Enter $1: " pass_name || exit 1
+  else
+    read -r -s -p "Enter $1: " pass_name || exit 1
     echo
-    [[ "$HASH_ECHO" == 'true' ]] || stty -echo
+    read -r -s -p "Re-enter $1: " pass_name_again || exit 1
+    echo
+
+    [[ "$pass_name" == "$pass_name_again" ]] || \
+      hash_die "Error: $1 doesn't match."
   fi
-  { hash_sum | tr -d '\n'; printf \\n; }
-  hash_reset_stty
+  echo "$pass_name" | hash_sum 
 }
 
 hash_salt() {
@@ -92,7 +90,7 @@ hash_get_salted_path() {
   old_ifs=$IFS
   old_algo="$HASH_ALGORITHM"
 
-  IFS=$'\t' read -r name_hash salt_hash entry_algo
+  IFS=$'\t' read -r name_hash salt_hash entry_algo || exit 1
   HASH_ALGORITHM="$entry_algo"
   echo "${name_hash}${salt_hash}" | hash_sum 
 
@@ -197,10 +195,11 @@ hash_cmd_generate() {
     esac
   done
 
-  if [ -z "$path" ];
+  if [ -z "$path" ]; then
     path="$(hash_secure_input "password name")"
     [[ -n "$len" ]] || len="$(hash_secure_input "password length")"
   fi
+
   if ! cmd_show "$HASH_INDEX_FILE" | grep -q "$^$path	"; then
     new_entry="$(hash_make_entry "$path")"
     cmd_generate "${args[@]}" "$(echo "$new_entry" | hash_get_salted_path)"
@@ -209,8 +208,6 @@ hash_cmd_generate() {
     cmd_generate "${args[@]}" \
       "$(hash_index_get_entry "$path" | hash_get_salted_path)"
   fi
-
-
 }
 
 hash_cmd_grep() {
@@ -331,9 +328,6 @@ hash_cmd_show() {
   :
 }
 
-# Set current stty if interactive terminal
-[[ -t 0 ]] && HASH_STTY="$(stty -g)"
-
 args=( "$@" )
 # Parse pass-hash specific flags
 while [ "$#" -gt 0 ]; do
@@ -343,7 +337,7 @@ while [ "$#" -gt 0 ]; do
       unset "args[-$#]"; shift
       ;;
     -a|--algorithm)
-      HASH_ALGORITHM="${2:?"Error: missing algorithm."}"
+      HASH_ALGORITHM="${2:-}"
       unset "args[-$#]"; shift
       unset "args[-$#]"; shift
       ;;
@@ -360,6 +354,10 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+# DEBUG
+hash_secure_input "$@"
+exit
 
 set -- "${args[@]}"
 case "$1" in
@@ -378,5 +376,4 @@ case "$1" in
   *)                        hash_cmd_show "$@" ;;
 esac
 
-hash_reset_stty
 exit 0
