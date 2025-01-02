@@ -209,49 +209,77 @@ NAME
   $HASH_PROGRAM $HASH_VERSION
 
 USAGE
-  $PROGRAM hash [OPTIONS] [COMMAND] 
+  $PROGRAM hash [-a|--algorithm "<name>:<command>"] [-e|--echo] [COMMAND]
 
+OPTIONS
+  -a|--algorithm "<name:command>" Set the algorithm used in hashing password  
+                                  names and salts. Argument is a quoted string
+                                  with the name of the algorithm and the
+                                  command used to use it separated by a ':'.
+                                  This script assumes the algorithm will be
+                                  a SHA hash. If the command is ommitted,
+                                  a suitable command will attempt to be found.
+                                  This overrides the environment variable,
+                                  PASSWORD_STORE_HASH_ALGORITHM.
+                                  See ENVIRONMENT VARIALBLES for more info.
+
+  -e|--echo                       Turn on local echo for entry of password
+                                  names. Only applies to the password name 
+                                  functionality of pass-hash. To also enable
+                                  echo on pass (e.g., 'pass hash insert'), 
+                                  this flag will need to be passed again.
+
+SYNOPSIS
   In most cases, pass-hash acts as a shim for standard pass commands.
   Simply precede 'hash' to any commands seen in 'pass help.'
 
-  Exceptions:
-    - The hash index keeps a hashed version of your password path, a
-      randomly (/dev/urandom) generated salt, and the algorithm each was
-      hashed with. Meaning: your plaintext password 'key' is not kept, which
-      does break some functionality from standard pass. Any function that
-      requires knowing the plaintext of the key is modified, including
-      'pass hash show' and 'pass hash find' without providing the path.
+  Unique to pass-hash is the password name, used as a path in standard pass,
+  can be passed via standard in (STDIN). In cases where pass expects input
+  on standard in (e.g., pass insert), separate the input by a new line. In
+  the case of 'pass hash insert,' the first line of standard input would be
+  the password name, the second line of standard input would be the password.
 
-    - Unlike pass, pass-hash doesn't create separate directories for your 
-      path. They are single hashed files stored in a separate subdirectory
-      of the password store. Therefore, you can only copy, move, and delete
-      hashed passwords at the password level, not at the directory level.
+  This is the recommended way to use the pass-hash extension, as the assumed
+  security model is to keep the name of the password obfuscated (whereas the
+  model for standard 'pass' is to only encrypt the password itself). However,
+  to keep backwards compatibility, pass-hash will also accept password names 
+  as arguments, but this is not recommended.
+
+  Other Exceptions:
+    - The hash index keeps a hashed version of your password name, a
+      randomly (/dev/urandom) generated salt, and the algorithm each was
+      hashed with. Meaning: your plaintext password name is not kept, which
+      does break some functionality from standard pass. Any function that
+      requires knowing the plaintext of the name will not work as expected if
+      the full password name is not provided, including 'pass hash show' and
+      'pass hash find'.
+
+    - Unlike 'pass', you can only copy, move, and delete hashed by it's
+      complete password name, as pass-hash doesn't create a full path of 
+      separate directories for the password name. They are single hashed files
+      stored in a separate subdirectory set by PASSWORD_STORE_HASH_DIR.
 
     - 'pass hash init' is a separate command from 'pass init', it's only job
       is to create and encrypt the hash index.
 
-
-  Unique commands only found to pass-hash:
-  hash import [path]: imports/moves passwords from the standard password
-                      store into the hashed store
-
-OPTIONS
-
-  -e|--echo                       Turn on 'echo' for entering 
-  -a|--algorithm <SHA algorithm>  SHA algorithm used for hashing entries
-                                  and salts. Default: SHA512
-
 ENVIRONMENT VARIABLES
 
   PASSWORD_STORE_HASH_ALGORITHM
-    The SHA algorithm to use when hashing new files. Default: SHA512
+    Default: "SHA512"
+    A ':' separated string with the first part being the name of the algorithm
+    followed by the command used to program used. The program must accept piped
+    input via standard in and output the hash as the first argument.
+    In the case of a BSD-style program like sha512, this would be set to
+    "SHA512:sha512 -r". If the second half of the ':' is ommitted, the script
+    will attempt to find the right command and will exit with an error if not
+    found.
 
   PASSWORD_STORE_HASH_DIR
     Sub-directory for the hashed password store. Default: .pass_hash
 
   PASSWORD_STORE_HASH_ECHO
-    Boolean to echo back user input of paths / keys. Note: this only applies
-    to the hash program. For standard pass commands, this will need to be set
+    Boolean to echo back user input of password names. Note: this only applies
+    to the hash extension. For standard pass commands, this will need to be set
     again.
 
 EOF
