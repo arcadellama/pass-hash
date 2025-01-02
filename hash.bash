@@ -73,20 +73,28 @@ hash_make_entry() {
 hash_index_update() {
   if hash_index_get_entry "$(echo "$1" | cut -f1)"; then
     hash_index_delete "$(echo "$1" | cut -f1)"
-  else
-    { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
-      cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
   fi
-}
 
-hash_index_delete() {
-  cmd_show "$HASH_INDEX_FILE" | grep -v "^$1	" | \
+  { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
     cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
 }
 
+hash_index_delete() {
+  cmd_show "$HASH_INDEX_FILE" | \
+    while read -r line; do
+      case "$line" in
+        "$1"	*) continue ;;
+        *) echo "$line"   ;;
+      esac
+    done | cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+}
+
 hash_index_get_entry() {
-  cmd_show "$HASH_INDEX_FILE" | grep "^$1	" || \
-    return 1
+  cmd_show "$HASH_INDEX_FILE" | \
+    while read -r line; do
+      case "$line" in "$1"	*) echo "$line" ; return ;; esac
+    done
+  return 1
 }
 
 hash_get_salted_path() {
