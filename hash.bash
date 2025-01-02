@@ -82,7 +82,7 @@ hash_index_delete() {
 
 hash_index_get_entry() {
   cmd_show "$HASH_INDEX_FILE" | grep "^$1	" || \
-    hash_die "Error: path not found in hash index."
+    return 1
 }
 
 hash_get_salted_path() {
@@ -100,9 +100,11 @@ hash_get_salted_path() {
 
 #### Command Functions ####
 hash_cmd_copy_move() {
-  # copy|move [--force, -f] old-path new-path
+  local args cmd old_path new_path old_entry new_entry stdin
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  local args cmd old_path new_path new_entry
+  
+  # copy|move [--force, -f] old-path new-path
   args=( "$@" )
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -118,26 +120,36 @@ hash_cmd_copy_move() {
   done
 
   if [[ -z "$old_path" ]] && [[ -z "$new_path" ]]; then
-    old_path="$(hash_secure_input "current path to copy/move from")"
-    new_path="$(hash_secure_input "new path to copy/move to")"
+    stdin="$(cat)"
+    old_path="$(hash_secure_input "current password name to copy/move from")"
+    new_path="$(hash_secure_input "new password name to copy/move to")"
   else
     cmd_copy_move "${args[@]}"
   fi 
 
+  old_entry="$(hash_index_get_entry "$old_path")" || 
+    hash_die "Error: current password name not found in hash index."
   new_entry="$(hash_make_entry "$new_path")"
 
   cmd_copy_move "${args[@]}" \
-    "$HASH_DIR/$(hash_index_get_entry "$old_path" | hash_get_salted_path)" \
+    "$HASH_DIR/$(echo "$old_entry" | hash_get_salted_path)" \
     "$HASH_DIR/$(echo "$new_entry" | hash_get_salted_path)"
 
-  [[ "$cmd" == "move" ]] && hash_index_delete "$old_path"
-  hash_index_add "$new_entry"
+  if [ "$cmd" == "move" ]; then
+    hash_index_delete "$old_path" || \
+      hash_die "Error: unable to delete entry from index."
+  fi
+
+  hash_index_add "$new_entry" || \
+    hash_die "Error: unable to add new entry to index."
 }
 
 hash_cmd_delete() {
-  # [ --recursive, -r ] [ --force, -f ] pass-name
+  local args path entry
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  local args path new_entry
+  
+  # [ --recursive, -r ] [ --force, -f ] pass-name
   args=( "$@" )
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -147,28 +159,34 @@ hash_cmd_delete() {
   done
 
   [[ -n "$path" ]] || path="$(hash_secure_input "password name")"
-  
+  entry="$(hash_index_get_entry "$path")" || \
+    hash_die "Error: password name not found in index."
+
   cmd_delete "${args[$@]}" \
-    "$HASH_DIR/$(hash_index_get_entry "$path" | hash_get_salted_path)"
-  hash_index_delete "$path"
+    "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+
+  hash_index_delete "$path" || \
+    hash_die "Error: unable to delete entry from index."
 }
 
 hash_cmd_edit() {
-  # pass-name
+  local path entry
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  local path new_entry
+
   if [ "$#" -gt 0 ]; then
     path="$(echo "$1" | hash_sum)"
   else
     path="$(hash_secure_input "password name")"
   fi
 
-  if ! cmd_show "$HASH_INDEX_FILE" | grep -q "$^$path	"; then
-    new_entry="$(hash_make_entry "$path")"
-    cmd_edit "$(echo "$new_entry" | hash_get_salted_path)"
-    hash_index_add_entry "$new_entry"
+  if ! entry="$(hash_index_get_entry "$path")"; then
+    entry="$(hash_make_entry "$path")"
+    cmd_edit "$(echo "$entry" | hash_get_salted_path)"
+    hash_index_add_entry "$entry" || \
+      hash_die "Error: unabel to add new entry to index."
   else
-    cmd_edit "$(hash_index_get_entry "$path" | hash_get_salted_path)"
+    cmd_edit "$(echo "$entry" | hash_get_salted_path)"
   fi
 }
 
