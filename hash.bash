@@ -62,26 +62,26 @@ hash_sum() {
 }
 
 hash_secure_input() {
-  # An older version of this script use stty -echo and read input directly
+  # Early drafts of this script used stty -echo and read input directly
   # into the hash_sum which meant the plain text of the password name was never
   # kept in a variable. However, this broke compatibilty with 'pass' functions
   # like 'cmd_insert' which also expects passwords to come in on the standard
   # input. Author considers this acceptable as it is no more or less secure
   # than how 'pass' handles the passwords and files itself.
 
-  local pass_name pass_name_again
+  local input input_again
   if [[ ! -t 0 ]] || [ "$HASH_ECHO" == 'true' ]; then
-    read -r -p "Enter $1: " pass_name || exit 1
+    read -r -p "Enter $1: " input || exit 1
   else
-    read -r -s -p "Enter $1: " pass_name || exit 1
+    read -r -s -p "Enter $1: " input || exit 1
     echo
-    read -r -s -p "Re-enter $1: " pass_name_again || exit 1
+    read -r -s -p "Re-enter $1: " input_again || exit 1
     echo
 
-    [[ "$pass_name" == "$pass_name_again" ]] || \
+    [[ "$input" == "$input_again" ]] || \
       hash_die "Error: $1 doesn't match."
   fi
-  echo "$pass_name" | hash_sum 
+  echo "$input" | hash_sum 
 }
 
 hash_salt() {
@@ -131,8 +131,8 @@ hash_index_update() {
 }
 
 hash_index_delete() {
-  # This is read loop a very inefficient way to replace a single line in a file 
-  # and could be replaced with a simple 'grep -v "^$1	"', however, by using the
+  # This read loop a very inefficient way to replace a single line in a file 
+  # and could be replaced with a simple 'grep -v "^$1	"'. However, by using the
   # built-in read there is (probably?) a minor reduction in exposing a secret
   # by not needing to pass the non-salted hash of the pass-name
   # to an external program as an argument.
@@ -148,7 +148,7 @@ hash_index_delete() {
 
 hash_index_get_entry() {
   # This could be replaced with a simple one-line to 'grep "^$1	"', however
-  # this more inefficient way eliminates the need to call an external command
+  # this more inefficiently eliminates the need to call an external command
   # with the non-salted hash of the pass-name, which might reduce the
   # possiblity of exposing a secret.
 
@@ -172,10 +172,13 @@ hash_cmd_copy_move() {
       copy|move) cmd="$1"; shift ;;
       -*) shift ;;
       *)
-        old_path="$(echo "${args[-$#]}" | hash_sum)"
-        new_path="$(echo "${args[-$(($#-1))]}" | hash_sum)"
-        unset "${args[-$#]}" "${args[-$(($#-1))]}"
-        break
+        if [ -n "$old_path" ]; then
+          new_path="$(echo "$1" | hash_sum)"
+        else
+	  old_path="$(echo "$1" | hash_sum)"
+        fi
+	unset "${args[-$#]}"
+        shift
         ;;
     esac
   done
@@ -291,11 +294,11 @@ hash_cmd_generate() {
   if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
     cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
-    hash_index_update_entry "$new_entry" || \
-      hash_die "Error: unable to add new entry to index."
   else
     cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
   fi
+  hash_index_update_entry "$entry" || \
+      hash_die "Error: unable to add new entry to index."
 }
 
 hash_cmd_grep() {
@@ -386,7 +389,6 @@ EOF
 }
 
 hash_cmd_init() {
-  # Future version could have a -p argument to set subdirectory
   [[ -f "$HASH_INDEX_FILE" ]] && \
     hash_die "Error: $HASH_INDEX_FILE already exists."
 
@@ -405,7 +407,7 @@ hash_cmd_insert() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -*) shift ;;
-      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
+      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]"; break ;;
     esac
   done
 
@@ -417,7 +419,8 @@ hash_cmd_insert() {
 
   cmd_insert -m "${args[@]}" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
 
-  hash_index_update "$entry"
+  hash_index_update_entry "$entry" || \
+      hash_die "Error: unable to add new entry to index."
 }
 
 hash_cmd_show() {
@@ -431,7 +434,7 @@ hash_cmd_show() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -*) shift ;;
-      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
+      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]"; break ;;
     esac
   done
 
@@ -494,7 +497,7 @@ case "$1" in
   insert|add) shift;        hash_cmd_insert "$@" ;;
   rename|mv) shift;         hash_cmd_copy_move "move" "$@" ;;
   show|ls|list) shift;      hash_cmd_show "$@" ;;
-  *)                        hash_cmd_show "$@" ;;
+  *)                        hash_cmd_usage ;;
 esac
 
 exit 0
