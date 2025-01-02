@@ -10,10 +10,9 @@ readonly HASH_VERSION='0.1'
 
 HASH_ALGORITHM="${PASSWORD_STORE_HASH_ALGORITHM:-SHA512}"
 HASH_DIR="${PASSWORD_STORE_HASH_DIR:-.pass-hash}"
-HASH_INDEX_FILE="${PREFIX}/${HASH_DIR}/.hash-index"
 HASH_ECHO="${PASSWORD_STORE_HASH_ECHO:-}"
 
-#### Helper Functions ####
+#### General Functions ####
 hash_die() {
 	echo "[$HASH_PROGRAM] $*" >&2
 	exit 1
@@ -101,6 +100,23 @@ hash_make_entry() {
   printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
 }
 
+hash_get_salted_path() {
+  # Hashes the first two entries of the selected tab delineated line with the 
+  # algorithm in the third entry.
+
+  local old_ifs old_algo name_hash salt_hash entry_algo
+  old_ifs=$IFS
+  old_algo="$HASH_ALGORITHM"
+
+  IFS=$'\t' read -r name_hash salt_hash entry_algo || exit 1
+  HASH_ALGORITHM="$entry_algo"
+  echo "${name_hash}${salt_hash}" | hash_sum 
+
+  HASH_ALGORITHM="$old_algo"
+  IFS=$old_ifs
+} 
+
+#### Index Functions ####
 hash_index_update() {
   # It is important that this command is only run after the 'pass' function
   # successfully makes updates to the system so that the index can stay in
@@ -143,23 +159,7 @@ hash_index_get_entry() {
   return 1
 }
 
-hash_get_salted_path() {
-  # Hashes the first two entries of the selected index line with the 
-  # algorithm in the third entry.
-
-  local old_ifs old_algo name_hash salt_hash entry_algo
-  old_ifs=$IFS
-  old_algo="$HASH_ALGORITHM"
-
-  IFS=$'\t' read -r name_hash salt_hash entry_algo || exit 1
-  HASH_ALGORITHM="$entry_algo"
-  echo "${name_hash}${salt_hash}" | hash_sum 
-
-  HASH_ALGORITHM="$old_algo"
-  IFS=$old_ifs
-} 
-
-#### Command Functions ####
+#### Pass Command Shim Functions ####
 hash_cmd_copy_move() {
   local args cmd path old_path new_path old_entry new_entry
 
@@ -222,7 +222,7 @@ hash_cmd_delete() {
     esac
   done
 
-  [[ -n "$path" ]] || path="$(hash_secure_input "password name")"
+  path="${path:-"$(hash_secure_input "password name")"}"
 
   entry="$(hash_index_get_entry "$path")" || \
     hash_die "Error: password name not found in index."
@@ -239,11 +239,7 @@ hash_cmd_edit() {
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
 
-  if [ "$#" -gt 0 ]; then
-    path="$(echo "$*" | hash_sum)"
-  else
-    path="$(hash_secure_input "password name")"
-  fi
+  path="${1:-"$(hash_secure_input "password name")"}"
 
   if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
@@ -390,6 +386,7 @@ EOF
 }
 
 hash_cmd_init() {
+  # Future version could have a -p argument to set subdirectory
   [[ -f "$HASH_INDEX_FILE" ]] && \
     hash_die "Error: $HASH_INDEX_FILE already exists."
 
@@ -424,9 +421,35 @@ hash_cmd_insert() {
 }
 
 hash_cmd_show() {
+  local args path entry
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  :
+
+  # [ --clip[=line-number], -c[line-number] ] [ --qrcode[=line-number],
+  # -q[line-number] ] pass-name
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) shift ;;
+      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
+    esac
+  done
+
+  path="${path:-"$(hash_secure_input "password name")"}"
+
+  [[ -n "$path" ]] || hash_die "Error: paths are hashed, nothing to show."
+
+  entry="$(hash_index_get_entry $index)" || \
+    hash_die "Error: password name not found in index."
+
+  cmd_show "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
 }
+
+#### Unique pass-hash command functions ####
+# hash_cmd_import() {
+# # Import passwords from the standard store into the hashed store with option
+#   to move or copy.
+# }
 
 args=( "$@" )
 # Parse pass-hash specific flags
@@ -455,10 +478,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# DEBUG
-hash_secure_input "$@"
-hash_secure_input "$@"
-exit
+HASH_INDEX_FILE="${PREFIX}/${HASH_DIR}/.hash-index"
 
 set -- "${args[@]}"
 case "$1" in
