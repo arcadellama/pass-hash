@@ -25,20 +25,32 @@ hash_reset_stty() {
 }
 
 hash_sum() {
-  local bitdepth
-  HASH_ALGORITHM="$(echo "$HASH_ALGORITHM" | tr "[:lower:]" "[:upper:]")"
-  bitdepth="${HASH_ALGORITHM#SHA}"
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a "$bitdepth" | cut -d' ' -f1
-  elif
-    command -v sha"${bitdepth}"sum >/dev/null 2>&1; then
-    sha"${bitdepth}"sum | cut -d' ' -f1
-  elif
-    command -v sha"${bitdepth}" >/dev/null 2>&1; then
-    sha"${bitdepth}" -r | cut -d' ' -f1
-  else
-    hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
+  local algo_name algo_command algo_bit
+  ${a#*:}
+  algo_name="${HASH_ALGORITHM%:*}"
+  algo_command="${HASH_ALGORITHM#*:}"
+  if [ -n "$algo_command" ]; then
+    $algo_command | cut -d' ' -f1 || hash_die "Error: $algo_command not found."
+    return
   fi
+
+  algo_name="$(echo "$algo_name" | tr "[:lower:]" "[:upper:]")"
+  case "$algo_name" 
+    in SHA*)
+      algo_bit="${algo_name#SHA}"
+      if command -v shasum >/dev/null 2>&1; then
+        shasum -a "$algo_bit" | cut -d' ' -f1
+      elif
+        command -v sha"${algo_bit}"sum >/dev/null 2>&1; then
+        sha"${algo_bit}"sum | cut -d' ' -f1
+      elif
+        command -v sha"${bitdepth}" >/dev/null 2>&1; then
+        sha"${algo_bit}" -r | cut -d' ' -f1
+      fi
+      ;;
+  esac
+
+  hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
 }
 
 hash_secure_input() {
@@ -76,12 +88,14 @@ hash_index_get_entry() {
 }
 
 hash_get_salted_path() {
-  local old_ifs old_algo
+  local old_ifs old_algo name_hash salt_hash entry_algo
   old_ifs=$IFS
-  IFS=$'\t'
   old_algo="$HASH_ALGORITHM"
-  HASH_ALGORITHM="$3"
-  echo "${1}${2}" | hash_sum 
+
+  IFS=$'\t' read -r name_hash salt_hash entry_algo
+  HASH_ALGORITHM="$entry_algo"
+  echo "${name_hash}${salt_hash}" | hash_sum 
+
   HASH_ALGORITHM="$old_algo"
   IFS=$old_ifs
 } 
