@@ -414,7 +414,7 @@ hash_cmd_insert() {
 
   path="${path:-"$(hash_secure_input "password name")"}"
 
-  if ! entry="$(hash_index_get_entry $path)"; then
+  if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
   fi
 
@@ -443,7 +443,7 @@ hash_cmd_show() {
 
   [[ -n "$path" ]] || hash_die "Error: paths are hashed, nothing to show."
 
-  entry="$(hash_index_get_entry $index)" || \
+  entry="$(hash_index_get_entry "$path")" || \
     hash_die "Error: password name not found in index."
 
   cmd_show "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
