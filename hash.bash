@@ -20,6 +20,22 @@ hash_die() {
 }
 
 hash_sum() {
+  # This is the workhorse function of pass-hash, and any change to this needs
+  # to be done with backwards-compatibility in mind.
+  #
+  # A default of SHA is assumed, but easily overriden in the future with
+  # a new case entry.
+  # 
+  # Testing needs to be done across different POSIX systems to ensure
+  # these SHA commands function correctly.
+  #
+  # This deviates a bit from how 'pass' handles such situations, like in tmpdir
+  # in that it inefficiently processes some constants like which programs are
+  # on the system each time it is called. However, because there can
+  # conceivably be a mixed use of algorithms in situations with older index
+  # entries, a re-check of commands would be neccessary anyways. So, a cleaner
+  # and more readable code was opted for a slight increase in efficiency.
+  
   local algo_name algo_command algo_bit
 
   case "$HASH_ALGORITHM" in
@@ -47,6 +63,13 @@ hash_sum() {
 }
 
 hash_secure_input() {
+  # An older version of this script use stty -echo and read input directly
+  # into the hash_sum which meant the plain text of the password name was never
+  # kept in a variable. However, this broke compatibilty with 'pass' functions
+  # like 'cmd_insert' which also expects passwords to come in on the standard
+  # input. Author considers this acceptable as it is no more or less secure
+  # than how 'pass' handles the passwords and files itself.
+
   local pass_name pass_name_again
   if [[ ! -t 0 ]] || [ "$HASH_ECHO" == 'true' ]; then
     read -r -p "Enter $1: " pass_name || exit 1
@@ -63,14 +86,26 @@ hash_secure_input() {
 }
 
 hash_salt() {
-  head -4096 | hash_sum
+  # Updating the first half of this pipe will not break future functionality.
+  # Using 4096 lines of /dev/urandom is probably not necessary.
+  head -4096 < /dev/urandom | hash_sum
 }
 
 hash_make_entry() {
+  # TAB Delineated table
+  # <hashed password name>  | <hashed salt> | <algorithm:command>
+  #
+  # Future versions should be able to add more data or meta data AFTER these
+  # entries without breaking backwards compatibility.
+
   printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
 }
 
 hash_index_update() {
+  # It is important that this command is only run after the 'pass' function
+  # successfully makes updates to the system so that the index can stay in
+  # sync.
+
   if hash_index_get_entry "$(echo "$1" | cut -f1)"; then
     hash_index_delete "$(echo "$1" | cut -f1)"
   fi
@@ -80,6 +115,12 @@ hash_index_update() {
 }
 
 hash_index_delete() {
+  # This is read loop a very inefficient way to replace a single line in a file 
+  # and could be replaced with a simple 'grep -v "^$1	"', however, by using the
+  # built-in read there is (probably?) a minor reduction in exposing a secret
+  # by not needing to pass the non-salted hash of the pass-name
+  # to an external program as an argument.
+
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
       case "$line" in
@@ -90,6 +131,11 @@ hash_index_delete() {
 }
 
 hash_index_get_entry() {
+  # This could be replaced with a simple one-line to 'grep "^$1	"', however
+  # this more inefficient way eliminates the need to call an external command
+  # with the non-salted hash of the pass-name, which might reduce the
+  # possiblity of exposing a secret.
+
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
       case "$line" in "$1"	*) echo "$line" ; return ;; esac
@@ -98,6 +144,9 @@ hash_index_get_entry() {
 }
 
 hash_get_salted_path() {
+  # Hashes the first two entries of the selected index line with the 
+  # algorithm in the third entry.
+
   local old_ifs old_algo name_hash salt_hash entry_algo
   old_ifs=$IFS
   old_algo="$HASH_ALGORITHM"
@@ -112,7 +161,7 @@ hash_get_salted_path() {
 
 #### Command Functions ####
 hash_cmd_copy_move() {
-  local args cmd old_path new_path old_entry new_entry stdin
+  local args cmd path old_path new_path old_entry new_entry
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
   
@@ -132,9 +181,12 @@ hash_cmd_copy_move() {
   done
 
   if [[ -z "$old_path" ]] && [[ -z "$new_path" ]]; then
-    stdin="$(cat)"
-    old_path="$(hash_secure_input "current password name to copy/move from")"
-    new_path="$(hash_secure_input "new password name to copy/move to")"
+    # It seems the expected behavior of requiring two entries via stdin is to  
+    # keep it as one line.
+    path="$(hash_secure_input "<old password name> <new password name>")"
+    set -- $path
+    old_path="$1"
+    new_path="$2"
   else
     cmd_copy_move "${args[@]}"
   fi 
@@ -209,7 +261,7 @@ hash_cmd_find() {
 }
 
 hash_cmd_generate() {
-  local args path stdin len entry
+  local args path len entry
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
   
@@ -220,24 +272,22 @@ hash_cmd_generate() {
     case "$1" in
       -*) shift ;;
       *)
-        stdin="$(cat)"
-        unset "args[-$#]"
-        if [ -n "$stdin" ]; then
+        if [ -n "$path" ]; then
           len="$1"
         else
           path="$(echo "$1" | hash_sum)"
-          shift
-          len="${1:-}"
-          [[ -n "$len" ]] && unset "args[-$#]"
         fi
-        break
+        unset "args[-$#]"
+        shift
         ;;
     esac
   done
 
   if [ -z "$path" ]; then
-    [[ -n "$stdin" ]] && echo "$stdin" | \
-    path="$(hash_secure_input "password name")"
+    path="$(hash_secure_input "<password name> <pass-length (optional)>")"
+    set -- $path
+    path="$1"
+    len="${2:-}"
   fi
 
   [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
@@ -345,7 +395,7 @@ hash_cmd_init() {
 
   # Create and encrypt index file
   echo "# $HASH_PROGRAM -- $HASH_VERSION" | \
-    cmd_insert -f "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")" > /dev/null
+    cmd_insert -f "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")"
 }
 
 hash_cmd_insert() {
