@@ -70,9 +70,13 @@ hash_make_entry() {
   printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
 }
 
-hash_index_add() {
-  { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
-    cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+hash_index_update() {
+  if hash_index_get_entry "$(echo "$1" | cut -f1)"; then
+    hash_index_delete "$(echo "$1" | cut -f1)"
+  else
+    { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
+      cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+  fi
 }
 
 hash_index_delete() {
@@ -140,7 +144,7 @@ hash_cmd_copy_move() {
       hash_die "Error: unable to delete entry from index."
   fi
 
-  hash_index_add "$new_entry" || \
+  hash_index_update "$new_entry" || \
     hash_die "Error: unable to add new entry to index."
 }
 
@@ -159,6 +163,7 @@ hash_cmd_delete() {
   done
 
   [[ -n "$path" ]] || path="$(hash_secure_input "password name")"
+
   entry="$(hash_index_get_entry "$path")" || \
     hash_die "Error: password name not found in index."
 
@@ -175,7 +180,7 @@ hash_cmd_edit() {
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
 
   if [ "$#" -gt 0 ]; then
-    path="$(echo "$1" | hash_sum)"
+    path="$(echo "$*" | hash_sum)"
   else
     path="$(hash_secure_input "password name")"
   fi
@@ -183,52 +188,64 @@ hash_cmd_edit() {
   if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
     cmd_edit "$(echo "$entry" | hash_get_salted_path)"
-    hash_index_add_entry "$entry" || \
-      hash_die "Error: unabel to add new entry to index."
+    hash_index_update_entry "$entry" || \
+      hash_die "Error: unable to add new entry to index."
   else
     cmd_edit "$(echo "$entry" | hash_get_salted_path)"
   fi
 }
 
 hash_cmd_find() {
-  hash_die "'find' command does not work with pass-hash store."
+  echo "'find' command does not work with pass-hash store." >&2
+  cmd_find "$@"
 }
 
 hash_cmd_generate() {
-  # [ --no-symbols, -n ] [ --clip, -c ] [ --in-place,
-  #     -i | --force, -f ] pass-name [pass-length]
+  local args path stdin len entry
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  local args path len
+  
+  # [ --no-symbols, -n ] [ --clip, -c ] [ --in-place,
+  # -i | --force, -f ] pass-name [pass-length]
   args=( "$@" )
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -*) shift ;;
       *)
-        path="$(echo "$1" | hash_sum)"
+        stdin="$(cat)"
         unset "args[-$#]"
-        len="${2:-}"
-        [[ -n "$len" ]] && unset "args[-1]"
+        if [ -n "$stdin" ]; then
+          len="$1"
+        else
+          path="$(echo "$1" | hash_sum)"
+          shift
+          len="${1:-}"
+          [[ -n "$len" ]] && unset "args[-$#]"
+        fi
         break
         ;;
     esac
   done
 
   if [ -z "$path" ]; then
+    [[ -n "$stdin" ]] && echo "$stdin" | \
     path="$(hash_secure_input "password name")"
-    [[ -n "$len" ]] || len="$(hash_secure_input "password length")"
   fi
 
-  if ! cmd_show "$HASH_INDEX_FILE" | grep -q "$^$path	"; then
-    new_entry="$(hash_make_entry "$path")"
-    cmd_generate "${args[@]}" "$(echo "$new_entry" | hash_get_salted_path)"
-    hash_index_add_entry "$new_entry"
+  [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
+
+  if ! entry="$(hash_index_get_entry "$path")"; then
+    entry="$(hash_make_entry "$path")"
+    cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
+    hash_index_update_entry "$new_entry" || \
+      hash_die "Error: unable to add new entry to index."
   else
-    cmd_generate "${args[@]}" \
-      "$(hash_index_get_entry "$path" | hash_get_salted_path)"
+    cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
   fi
 }
 
 hash_cmd_grep() {
+  export PREFIX="$HASH_DIR"
   cmd_grep "$@"
 }
 
@@ -324,9 +341,11 @@ hash_cmd_init() {
 }
 
 hash_cmd_insert() {
-  # [ --echo, -e | --multiline, -m ] [ --force, -f ] pass-name
+  local args path entry new
+
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: run 'pass hash init' first."
-  local args path new_entry
+
+  # [ --echo, -e | --multiline, -m ] [ --force, -f ] pass-name
   args=( "$@" )
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -336,9 +355,14 @@ hash_cmd_insert() {
   done
 
   path="${path:-"$(hash_secure_input "password name")"}"
-  new_entry="$(hash_make_entry "$path")"
-  cmd_insert -f -m "${args[@]}" "$HASH_DIR/$(echo "$new_entry" | cut -f1)"
-  hash_index_add "$new_entry"
+
+  if ! entry="$(hash_index_get_entry $index)"; then
+    entry="$(hash_make_entry "$path")"
+  fi
+
+  cmd_insert -m "${args[@]}" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+
+  hash_index_update "$entry"
 }
 
 hash_cmd_show() {
@@ -374,6 +398,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 # DEBUG
+hash_secure_input "$@"
 hash_secure_input "$@"
 exit
 
