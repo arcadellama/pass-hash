@@ -35,16 +35,15 @@ hash_sum() {
   # entries, a re-check of commands would be neccessary anyways. So, a cleaner
   # and more readable code was opted for a slight increase in efficiency.
   
-  local algo_name algo_command algo_bit
+  local algo_command algo_bit
 
   case "$HASH_ALGORITHM" in
     *:*)
-      algo_name="${HASH_ALGORITHM%:*}"
       algo_command="${HASH_ALGORITHM#*:}"
       $algo_command | cut -d' ' -f1 || exit 1
       ;;
     SHA*|sha*)
-      HASH_ALGORITHM="$(echo "$HASH_ALGORITHM" | tr '[[:lower:]]' '[[:upper:]]')"
+      HASH_ALGORITHM="$(echo "$HASH_ALGORITHM" | tr '[:lower:]' '[:upper:]')"
       algo_bit="${HASH_ALGORITHM#SHA}"
       if command -v shasum >/dev/null 2>&1; then
         shasum -a "$algo_bit" | cut -d' ' -f1 || exit 1
@@ -52,7 +51,7 @@ hash_sum() {
         command -v sha"${algo_bit}"sum >/dev/null 2>&1; then
         sha"${algo_bit}"sum | cut -d' ' -f1 || exit 1
       elif
-        command -v sha"${bitdepth}" >/dev/null 2>&1; then
+        command -v sha"${algo_bit}" >/dev/null 2>&1; then
         sha"${algo_bit}" -r | cut -d' ' -f1 || exit 1
       else
         hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
@@ -140,7 +139,7 @@ hash_index_delete() {
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
       case "$line" in
-        "$1"	*) continue ;;
+        "$1"\	*) continue ;;
         *) echo "$line"   ;;
       esac
     done | cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
@@ -154,7 +153,7 @@ hash_index_get_entry() {
 
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
-      case "$line" in "$1"	*) echo "$line" ; return ;; esac
+      case "$line" in "$1"\	*) echo "$line" ; return ;; esac
     done
   return 1
 }
@@ -187,6 +186,7 @@ hash_cmd_copy_move() {
     # It seems the expected behavior of requiring two entries via stdin is to  
     # keep it as one line.
     path="$(hash_secure_input "<old password name> <new password name>")"
+    # shellcheck disable=SC2086
     set -- $path
     old_path="$1"
     new_path="$2"
@@ -284,6 +284,7 @@ hash_cmd_generate() {
 
   if [ -z "$path" ]; then
     path="$(hash_secure_input "<password name> <pass-length (optional)>")"
+    # shellcheck disable=SC2086
     set -- $path
     path="$1"
     len="${2:-}"
@@ -398,7 +399,7 @@ hash_cmd_init() {
 }
 
 hash_cmd_insert() {
-  local args path entry new
+  local args path entry
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: run 'pass hash init' first."
 
@@ -413,7 +414,7 @@ hash_cmd_insert() {
 
   path="${path:-"$(hash_secure_input "password name")"}"
 
-  if ! entry="$(hash_index_get_entry $index)"; then
+  if ! entry="$(hash_index_get_entry $path)"; then
     entry="$(hash_make_entry "$path")"
   fi
 
