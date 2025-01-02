@@ -10,8 +10,8 @@ readonly HASH_VERSION='0.1'
 
 HASH_ALGORITHM="${PASSWORD_STORE_HASH_ALGORITHM:-SHA512}"
 HASH_DIR="${PASSWORD_STORE_HASH_DIR:-.pass-hash}"
-HASH_ECHO="${PASSWORD_STORE_HASH_ECHO:-}"
 HASH_INDEX_FILE="${PREFIX}/${HASH_DIR}/.hash-index"
+HASH_ECHO="${PASSWORD_STORE_HASH_ECHO:-}"
 
 #### Helper Functions ####
 hash_die() {
@@ -44,37 +44,163 @@ hash_sum() {
 hash_secure_input() {
   if [[ -t 0 ]]; then
     trap 'hash_reset_stty' INT
-		echo "Enter path to password and press Ctrl+D when finished:" >&2
+		echo "Enter $1 and press Ctrl+D when finished:" >&2
     echo
     [[ "$HASH_ECHO" == 'true' ]] || stty -echo
   fi
-  hash_sum | tr -d '\n'
+  { hash_sum | tr -d '\n'; printf \\n; }
   hash_reset_stty
 }
 
+hash_salt() {
+  head -4096 | hash_sum
+}
+
+hash_make_entry() {
+  printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
+}
+
+hash_index_add() {
+  { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
+    cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+}
+
+hash_index_delete() {
+  cmd_show "$HASH_INDEX_FILE" | grep -v "^$1	" | \
+    cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+}
+
+hash_index_get_entry() {
+  cmd_show "$HASH_INDEX_FILE" | grep "^$1	" || \
+    hash_die "Error: path not found in hash index."
+}
+
+hash_get_salted_path() {
+  local old_ifs old_algo
+  old_ifs=$IFS
+  IFS=$'\t'
+  old_algo="$HASH_ALGORITHM"
+  HASH_ALGORITHM="$3"
+  echo "${1}${2}" | hash_sum 
+  HASH_ALGORITHM="$old_algo"
+  IFS=$old_ifs
+} 
+
 #### Command Functions ####
 hash_cmd_copy_move() {
-  :
+  # copy|move [--force, -f] old-path new-path
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  local args cmd old_path new_path new_entry
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      copy|move) cmd="$1"; shift ;;
+      -*) shift ;;
+      *)
+        old_path="$(echo "${args[-$#]}" | hash_sum)"
+        new_path="$(echo "${args[-$(($#-1))]}" | hash_sum)"
+        unset "${args[-$#]}" "${args[-$(($#-1))]}"
+        break
+        ;;
+    esac
+  done
+
+  if [[ -z "$old_path" ]] && [[ -z "$new_path" ]]; then
+    old_path="$(hash_secure_input "current path to copy/move from")"
+    new_path="$(hash_secure_input "new path to copy/move to")"
+  else
+    cmd_copy_move "${args[@]}"
+  fi 
+
+  new_entry="$(hash_make_entry "$new_path")"
+
+  cmd_copy_move "${args[@]}" \
+    "$HASH_DIR/$(hash_index_get_entry "$old_path" | hash_get_salted_path)" \
+    "$HASH_DIR/$(echo "$new_entry" | hash_get_salted_path)"
+
+  [[ "$cmd" == "move" ]] && hash_index_delete "$old_path"
+  hash_index_add "$new_entry"
 }
 
 hash_cmd_delete() {
-  :
+  # [ --recursive, -r ] [ --force, -f ] pass-name
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  local args path new_entry
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) shift ;;
+      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
+    esac
+  done
+
+  [[ -n "$path" ]] || path="$(hash_secure_input "password name")"
+  
+  cmd_delete "${args[$@]}" \
+    "$HASH_DIR/$(hash_index_get_entry "$path" | hash_get_salted_path)"
+  hash_index_delete "$path"
 }
 
 hash_cmd_edit() {
-  :
+  # pass-name
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  local path new_entry
+  if [ "$#" -gt 0 ]; then
+    path="$(echo "$1" | hash_sum)"
+  else
+    path="$(hash_secure_input "password name")"
+  fi
+
+  if ! cmd_show "$HASH_INDEX_FILE" | grep -q "$^$path	"; then
+    new_entry="$(hash_make_entry "$path")"
+    cmd_edit "$(echo "$new_entry" | hash_get_salted_path)"
+    hash_index_add_entry "$new_entry"
+  else
+    cmd_edit "$(hash_index_get_entry "$path" | hash_get_salted_path)"
+  fi
 }
 
 hash_cmd_find() {
-  :
+  hash_die "'find' command does not work with pass-hash store."
 }
 
 hash_cmd_generate() {
-  :
+  # [ --no-symbols, -n ] [ --clip, -c ] [ --in-place,
+  #     -i | --force, -f ] pass-name [pass-length]
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  local args path len
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) shift ;;
+      *)
+        path="$(echo "$1" | hash_sum)"
+        unset "args[-$#]"
+        len="${2:-}"
+        [[ -n "$len" ]] && unset "args[-1]"
+        break
+        ;;
+    esac
+  done
+
+  if [ -z "$path" ];
+    path="$(hash_secure_input "password name")"
+    [[ -n "$len" ]] || len="$(hash_secure_input "password length")"
+  fi
+  if ! cmd_show "$HASH_INDEX_FILE" | grep -q "$^$path	"; then
+    new_entry="$(hash_make_entry "$path")"
+    cmd_generate "${args[@]}" "$(echo "$new_entry" | hash_get_salted_path)"
+    hash_index_add_entry "$new_entry"
+  else
+    cmd_generate "${args[@]}" \
+      "$(hash_index_get_entry "$path" | hash_get_salted_path)"
+  fi
+
+
 }
 
 hash_cmd_grep() {
-  :
+  cmd_grep "$@"
 }
 
 hash_cmd_usage() {
@@ -132,22 +258,34 @@ EOF
 }
 
 hash_cmd_init() {
-  :
-}
+  [[ -f "$HASH_INDEX_FILE" ]] && \
+    hash_die "Error: $HASH_INDEX_FILE already exists."
 
-hash_cmd_import() {
-  :
+  # Create and encrypt index file
+  echo "# $HASH_PROGRAM -- $HASH_VERSION" | \
+    cmd_insert -f "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")" > /dev/null
 }
 
 hash_cmd_insert() {
-  :
-}
+  # [ --echo, -e | --multiline, -m ] [ --force, -f ] pass-name
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: run 'pass hash init' first."
+  local args path new_entry
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) shift ;;
+      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
+    esac
+  done
 
-hash_cmd_copy_move() {
-  :
+  path="${path:-"$(hash_secure_input "password name")"}"
+  new_entry="$(hash_make_entry "$path")"
+  cmd_insert -f -m "${args[@]}" "$HASH_DIR/$(echo "$new_entry" | cut -f1)"
+  hash_index_add "$new_entry"
 }
 
 hash_cmd_show() {
+  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
   :
 }
 
