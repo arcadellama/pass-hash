@@ -76,7 +76,6 @@ hash_secure_input() {
     echo
     read -r -s -p "Re-enter $1: " input_again || exit 1
     echo
-
     [[ "$input" == "$input_again" ]] || \
       hash_die "Error: $1 doesn't match."
   fi
@@ -95,14 +94,12 @@ hash_make_entry() {
   #
   # Future versions should be able to add more data or meta data AFTER these
   # entries without breaking backwards compatibility.
-
   printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
 }
 
 hash_get_salted_path() {
   # Hashes the first two entries of the selected tab delineated line with the 
   # algorithm in the third entry.
-
   local old_ifs old_algo name_hash salt_hash entry_algo
   old_ifs=$IFS
   old_algo="$HASH_ALGORITHM"
@@ -121,8 +118,11 @@ hash_index_update() {
   # successfully makes updates to the system so that the index can stay in
   # sync.
 
+  [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
+
   if hash_index_get_entry "$(echo "$1" | cut -f1)"; then
-    hash_index_delete "$(echo "$1" | cut -f1)"
+    hash_index_delete "$(echo "$1" | cut -f1)" || \
+      hash_die "Error: unable to delete entry from index."
   fi
 
   { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
@@ -135,7 +135,8 @@ hash_index_delete() {
   # built-in read there is (probably?) a minor reduction in exposing a secret
   # by not needing to pass the non-salted hash of the pass-name
   # to an external program as an argument.
-
+  local line
+  [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
       case "$line" in
@@ -150,7 +151,8 @@ hash_index_get_entry() {
   # this more inefficiently eliminates the need to call an external command
   # with the non-salted hash of the pass-name, which might reduce the
   # possiblity of exposing a secret.
-
+  local line
+  [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
   cmd_show "$HASH_INDEX_FILE" | \
     while read -r line; do
       case "$line" in "$1"\	*) echo "$line" ; return ;; esac
@@ -161,41 +163,20 @@ hash_index_get_entry() {
 #### Pass Command Shim Functions ####
 hash_cmd_copy_move() {
   local args cmd path old_path new_path old_entry new_entry
-
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  
-  # copy|move [--force, -f] old-path new-path
   args=( "$@" )
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      copy|move) cmd="$1"; shift ;;
-      -*) shift ;;
-      *)
-        if [ -n "$old_path" ]; then
-          new_path="$(echo "$1" | hash_sum)"
-        else
-	  old_path="$(echo "$1" | hash_sum)"
-        fi
-	unset "${args[-$#]}"
-        shift
-        ;;
-    esac
-  done
+  cmd="$1" # copy|move
+  path="$(hash_secure_input "<old password name> <new password name>")" || \
+    hash_die "Error: unable to get password names via standard in."
+  
+  # shellcheck disable=SC2086
+  set -- $path
+  old_path="${1:-}"
+  new_path="${2:-}"
 
-  if [[ -z "$old_path" ]] && [[ -z "$new_path" ]]; then
-    # It seems the expected behavior of requiring two entries via stdin is to  
-    # keep it as one line.
-    path="$(hash_secure_input "<old password name> <new password name>")"
-    # shellcheck disable=SC2086
-    set -- $path
-    old_path="$1"
-    new_path="$2"
-  else
-    cmd_copy_move "${args[@]}"
-  fi 
-
-  old_entry="$(hash_index_get_entry "$old_path")" || 
+  old_entry="$(hash_index_get_entry "$old_path")" || \
     hash_die "Error: current password name not found in hash index."
+
   new_entry="$(hash_make_entry "$new_path")"
 
   cmd_copy_move "${args[@]}" \
@@ -212,26 +193,17 @@ hash_cmd_copy_move() {
 }
 
 hash_cmd_delete() {
-  local args path entry
+  local path entry
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
-  
-  # [ --recursive, -r ] [ --force, -f ] pass-name
-  args=( "$@" )
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      -*) shift ;;
-      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]" ;;
-    esac
-  done
 
-  path="${path:-"$(hash_secure_input "password name")"}"
+  path="$(hash_secure_input "password name")" || \
+    hash_die "Error: unable to get password names via standard in."
 
   entry="$(hash_index_get_entry "$path")" || \
     hash_die "Error: password name not found in index."
 
-  cmd_delete "${args[$@]}" \
-    "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+  cmd_delete "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
 
   hash_index_delete "$path" || \
     hash_die "Error: unable to delete entry from index."
@@ -242,8 +214,9 @@ hash_cmd_edit() {
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
 
-  path="${1:-"$(hash_secure_input "password name")"}"
-
+  path="$(hash_secure_input "password name")" || \
+    hash_die "Error: unable to get password names via standard in."
+    
   if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
     cmd_edit "$(echo "$entry" | hash_get_salted_path)"
@@ -264,31 +237,15 @@ hash_cmd_generate() {
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
   
-  # [ --no-symbols, -n ] [ --clip, -c ] [ --in-place,
-  # -i | --force, -f ] pass-name [pass-length]
   args=( "$@" )
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      -*) shift ;;
-      *)
-        if [ -n "$path" ]; then
-          len="$1"
-        else
-          path="$(echo "$1" | hash_sum)"
-        fi
-        unset "args[-$#]"
-        shift
-        ;;
-    esac
-  done
 
-  if [ -z "$path" ]; then
-    path="$(hash_secure_input "<password name> <pass-length (optional)>")"
-    # shellcheck disable=SC2086
-    set -- $path
-    path="$1"
-    len="${2:-}"
-  fi
+  path="$(hash_secure_input "<password name> <pass-length (optional)>")" || \
+    hash_die "Error: unable to get password names via standard in."
+
+  # shellcheck disable=SC2086
+  set -- $path
+  path="$1"
+  len="${2:-}"
 
   [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
 
@@ -298,6 +255,7 @@ hash_cmd_generate() {
   else
     cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
   fi
+
   hash_index_update_entry "$entry" || \
       hash_die "Error: unable to add new entry to index."
 }
@@ -395,7 +353,7 @@ hash_cmd_init() {
 
   # Create and encrypt index file
   echo "# $HASH_PROGRAM -- $HASH_VERSION" | \
-    cmd_insert -f "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")"
+    cmd_insert -f -m "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")"
 }
 
 hash_cmd_insert() {
@@ -403,16 +361,10 @@ hash_cmd_insert() {
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: run 'pass hash init' first."
 
-  # [ --echo, -e | --multiline, -m ] [ --force, -f ] pass-name
   args=( "$@" )
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      -*) shift ;;
-      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]"; break ;;
-    esac
-  done
 
-  path="${path:-"$(hash_secure_input "password name")"}"
+  path="$(hash_secure_input "password name")" || \
+    hash_die "Error: unable to get password name from standard in."
 
   if ! entry="$(hash_index_get_entry "$path")"; then
     entry="$(hash_make_entry "$path")"
@@ -429,17 +381,10 @@ hash_cmd_show() {
 
   [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
 
-  # [ --clip[=line-number], -c[line-number] ] [ --qrcode[=line-number],
-  # -q[line-number] ] pass-name
   args=( "$@" )
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      -*) shift ;;
-      *)  path="$(echo "$1" | hash_sum)"; unset "args[-$#]"; break ;;
-    esac
-  done
 
-  path="${path:-"$(hash_secure_input "password name")"}"
+  path="$(hash_secure_input "password name")" || \
+    hash_die "Error: unable to get password name from standard in."
 
   [[ -n "$path" ]] || hash_die "Error: paths are hashed, nothing to show."
 
@@ -455,7 +400,7 @@ hash_cmd_show() {
 #   to move or copy.
 # }
 
-args=( "$@" )
+hash_args=( "$@" )
 # Parse pass-hash specific flags
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -484,7 +429,7 @@ done
 
 HASH_INDEX_FILE="${PREFIX}/${HASH_DIR}/.hash-index"
 
-set -- "${args[@]}"
+set -- "${hash_args[@]}"
 case "$1" in
   copy|cp) shift;           hash_cmd_copy_move "copy" "$@" ;;
   delete|rm|remove) shift;  hash_cmd_delete "$@" ;;
