@@ -113,10 +113,35 @@ hash_get_salted_path() {
 } 
 
 #### Index Functions ####
+hash_index_check() {
+  if [ -f "${HASH_INDEX_FILE}.gpg" ]; then
+    # GPG-encrypted pass (password-store)
+    HASH_INDEX_FILE="${HASH_INDEX_FILE}.gpg"
+  elif [ -f "${HASH_INDEX_FILE}.age" ]; then
+    # age-encrypted pass (passage)
+    HASH_INDEX_FILE="${HASH_INDEX_FILE}.age"
+  else
+    return 1
+  fi
+
+}
+
+hash_index_init() {
+  local index_file
+  index_file="${HASH_DIR}/$(basename -- "$HASH_INDEX_FILE")"
+  # Create and encrypt index file
+  echo "# $HASH_PROGRAM -- $HASH_VERSION" | cmd_insert -f -m "$index_file"
+}
+
 hash_index_update() {
   # It is important that this command is only run after the 'pass' function
   # successfully makes updates to the system so that the index can stay in
   # sync.
+  local index_file
+  case "$HASH_INDEX_FILE" in
+    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
+    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
+  esac
 
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
 
@@ -125,8 +150,8 @@ hash_index_update() {
       hash_die "Error: unable to delete entry from index."
   fi
 
-  { cmd_show "$HASH_INDEX_FILE"; echo "$1"; } | \
-    cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+  { cmd_show "$index_file"; echo "$1"; } | \
+    cmd_insert -f -m "$index_file" >/dev/null
 }
 
 hash_index_delete() {
@@ -135,15 +160,19 @@ hash_index_delete() {
   # built-in read there is (probably?) a minor reduction in exposing a secret
   # by not needing to pass the non-salted hash of the pass-name
   # to an external program as an argument.
-  local line
+  local line index_file
+  case "$HASH_INDEX_FILE" in
+    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
+    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
+  esac
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
-  cmd_show "$HASH_INDEX_FILE" | \
+  cmd_show "$index_file" | \
     while read -r line; do
       case "$line" in
         "$1"\	*) continue ;;
         *) echo "$line"   ;;
       esac
-    done | cmd_insert -f -m "$HASH_INDEX_FILE" >/dev/null
+    done | cmd_insert -f -m "$index_file" >/dev/null
 }
 
 hash_index_get_entry() {
@@ -151,9 +180,15 @@ hash_index_get_entry() {
   # this more inefficiently eliminates the need to call an external command
   # with the non-salted hash of the pass-name, which might reduce the
   # possiblity of exposing a secret.
-  local line
+  local line index_file
+  case "$HASH_INDEX_FILE" in
+    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
+    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
+  esac
+
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
-  cmd_show "$HASH_INDEX_FILE" | \
+
+  cmd_show "$index_file" | \
     while read -r line; do
       case "$line" in "$1"\	*) echo "$line" ; return ;; esac
     done
@@ -163,8 +198,7 @@ hash_index_get_entry() {
 #### Pass Command Shim Functions ####
 hash_cmd_copy_move() {
   local args cmd path old_path new_path old_entry new_entry
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: pass-hash index not found."
+  hash_index_check || hash_die "Error: no pass-hash index."
   args=( "$@" )
   cmd="$1" # copy|move
   path="$(hash_secure_input "<old password name> <new password name>")" || \
@@ -195,13 +229,9 @@ hash_cmd_copy_move() {
 
 hash_cmd_delete() {
   local path entry
-
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: pass-hash index not found."
-
+  hash_index_check || hash_die "Error: no pass-hash index."
   path="$(hash_secure_input "password name")" || \
     hash_die "Error: unable to get password names via standard in."
-
   entry="$(hash_index_get_entry "$path")" || \
     hash_die "Error: password name not found in index."
 
@@ -213,10 +243,7 @@ hash_cmd_delete() {
 
 hash_cmd_edit() {
   local path entry
-
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: pass-hash index not found."
-
+  hash_index_check || hash_die "Error: no pass-hash index."
   path="$(hash_secure_input "password name")" || \
     hash_die "Error: unable to get password names via standard in."
     
@@ -237,12 +264,8 @@ hash_cmd_find() {
 
 hash_cmd_generate() {
   local args path len entry
-
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: pass-hash index not found."
-  
+  hash_index_check || hash_die "Error: no pass-hash index."
   args=( "$@" )
-
   path="$(hash_secure_input "<password name> <pass-length (optional)>")" || \
     hash_die "Error: unable to get password names via standard in."
 
@@ -352,20 +375,13 @@ EOF
 }
 
 hash_cmd_init() {
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: $HASH_INDEX_FILE already exists."
-
-  # Create and encrypt index file
-  echo "# $HASH_PROGRAM -- $HASH_VERSION" | \
-    cmd_insert -f -m "$HASH_DIR/$(basename -- "$HASH_INDEX_FILE")"
+  hash_index_check && hash_die "Error: pass-hash index already exists."
+  hash_index_init
 }
 
 hash_cmd_insert() {
   local args path entry
-
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: run 'pass hash init' first."
-
+  hash_index_check || hash_die "Error: no pass-hash index."
   args=( "$@" )
 
   path="$(hash_secure_input "password name")" || \
@@ -383,12 +399,8 @@ hash_cmd_insert() {
 
 hash_cmd_show() {
   local args path entry
-
-  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
-    hash_die "Error: pass-hash index not found."
-
+  hash_index_check || hash_die "Error: no pass-hash index."
   args=( "$@" )
-
   path="$(hash_secure_input "password name")" || \
     hash_die "Error: unable to get password name from standard in."
 
