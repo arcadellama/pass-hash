@@ -163,7 +163,8 @@ hash_index_get_entry() {
 #### Pass Command Shim Functions ####
 hash_cmd_copy_move() {
   local args cmd path old_path new_path old_entry new_entry
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: pass-hash index not found."
   args=( "$@" )
   cmd="$1" # copy|move
   path="$(hash_secure_input "<old password name> <new password name>")" || \
@@ -195,7 +196,8 @@ hash_cmd_copy_move() {
 hash_cmd_delete() {
   local path entry
 
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: pass-hash index not found."
 
   path="$(hash_secure_input "password name")" || \
     hash_die "Error: unable to get password names via standard in."
@@ -212,7 +214,8 @@ hash_cmd_delete() {
 hash_cmd_edit() {
   local path entry
 
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: pass-hash index not found."
 
   path="$(hash_secure_input "password name")" || \
     hash_die "Error: unable to get password names via standard in."
@@ -235,7 +238,8 @@ hash_cmd_find() {
 hash_cmd_generate() {
   local args path len entry
 
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: pass-hash index not found."
   
   args=( "$@" )
 
@@ -348,7 +352,7 @@ EOF
 }
 
 hash_cmd_init() {
-  [[ -f "$HASH_INDEX_FILE" ]] && \
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
     hash_die "Error: $HASH_INDEX_FILE already exists."
 
   # Create and encrypt index file
@@ -359,7 +363,8 @@ hash_cmd_init() {
 hash_cmd_insert() {
   local args path entry
 
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: run 'pass hash init' first."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: run 'pass hash init' first."
 
   args=( "$@" )
 
@@ -379,7 +384,8 @@ hash_cmd_insert() {
 hash_cmd_show() {
   local args path entry
 
-  [[ -f "$HASH_INDEX_FILE" ]] || hash_die "Error: pass-hash index not found."
+  [[ -f "${HASH_INDEX_FILE}.gpg" ]] || \
+    hash_die "Error: pass-hash index not found."
 
   args=( "$@" )
 
