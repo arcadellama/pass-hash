@@ -51,6 +51,8 @@ hash_sum() {
         hash_die "Error: Unable to find a program to hash $HASH_ALGORITHM."
       fi
       ;;
+    *)
+      hash_die "Error: unknown hash algorithm ($HASH_ALGORITHM)"
   esac
 }
 
@@ -104,7 +106,7 @@ hash_index_update() {
   fi
 
   { cmd_show "$index_file"; echo "$1"; } | \
-    cmd_insert -f -m "$index_file"
+    cmd_insert -f -m "$index_file" | grep -v 'Enter contents of.*'
 }
 
 hash_index_delete() {
@@ -122,7 +124,7 @@ hash_index_delete() {
         "$1"\	*) continue ;;
         *) echo "$line"   ;;
       esac
-    done | cmd_insert -f -m "$index_file"
+    done | cmd_insert -f -m "$index_file" | grep -v 'Enter contents of.*'
 }
 
 hash_index_get_entry() {
@@ -135,10 +137,9 @@ hash_index_get_entry() {
 
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
 
-  cmd_show "$index_file" | \
-    while read -r line; do
-      case "$line" in "$1"\	*) echo "$line" ; return ;; esac
-    done
+  while read -r line; do
+    case "$line" in "$1"\	*) echo "$line"; return 0 ;; esac
+  done < <(cmd_show "$index_file")
   return 1
 }
 
@@ -153,13 +154,16 @@ hash_cmd_double_field() {
       ;;
     generate)
       msg="<password name> <password length (optional)>"
+      shift # unset 'generate' from arguments
       ;;
   esac
   
   if [ "$HASH_ECHO" == 'true' ]; then
     read -r -p "Enter $msg: " field1 field2 || exit 1
+    [[ -t 0 ]] && echo
   else
     read -r -p "Enter $msg: " -s field1 field2 || exit 1
+    [[ -t 0 ]] && echo
   fi
 
   [[ -n "$field1" ]] || hash_die "Error: $msg is empty."
@@ -170,8 +174,8 @@ hash_cmd_double_field() {
 
       [[ -n "$field2" ]] || hash_die "Error: missing destination path."
 
-      old_path="$(echo "$field1" | hash_sum)"
-      new_path="$(echo "$field2" | hash_sum)"
+      old_path="$(echo "$field1" | hash_sum)" || exit 1
+      new_path="$(echo "$field2" | hash_sum)" || exit 1
 
       old_entry="$(hash_index_get_entry "$old_path")" || \
         hash_die "Error: current password name not found in hash index."
@@ -188,16 +192,16 @@ hash_cmd_double_field() {
     generate)
       local path len entry
 
-      path="$(echo "$field1" | hash_sum)"
+      path="$(echo "$field1" | hash_sum)" || exit 1
       len="${field2:-}"
 
       [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
 
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
-        cmd_generate "$@" "$(echo "$entry" | hash_get_salted_path)"
+        cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       else
-        cmd_generate "$@" "$(echo "$entry" | hash_get_salted_path)"
+        cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       fi
 
       hash_index_update "$entry"
@@ -215,10 +219,11 @@ hash_cmd_single_field() {
     read -r -p "Enter password name: " path || exit 1
   else
     read -r -p "Enter password name: " -s path || exit 1
+    [[ -t 0 ]] && echo
   fi
 
   [[ -n "$path" ]] || hash_die "Empty password name."
-  path="$(echo "$path" | hash_sum)"
+  path="$(echo "$path" | hash_sum)" || exit 1
 
   case "$cmd" in
     delete)
@@ -233,7 +238,7 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
+      cmd_edit "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       hash_index_update "$entry"
       ;;
 
@@ -249,19 +254,19 @@ hash_cmd_single_field() {
       entry="$(hash_index_get_entry "$path")" || \
         hash_die "Error: password name not found in index."
 
-      cmd_show "$@" "$(echo "$entry" | hash_get_salted_path)"
+      cmd_show "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       ;;
   esac
 }
 
 hash_cmd_find() {
   local cmd
-  export PREFIX="$HASH_DIR"
+  export PREFIX="$PREFIX/$HASH_DIR"
   cmd="$1" # find|grep
   shift
+  echo "[pass-hash] Info: pass-hash store is hashed." >&2
   case "$cmd" in
     find)
-      echo "[pass-hash] Info: pass-hash store is hashed." >&2
       cmd_find "$@"
       ;;
     grep)
@@ -271,8 +276,12 @@ hash_cmd_find() {
 }
 
 hash_cmd_init() {
+  local index_file
+  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE}")"
   hash_index_check && hash_die "Error: pass-hash index already exists."
-  echo "# $HASH_PROGRAM -- $HASH_VERSION" | hash_index_update 
+  # shellcheck disable=SC2002
+  cat /dev/null | cmd_insert -f -m "$index_file" | \
+    grep -v 'Enter contents of.*'
 }
 
 hash_cmd_usage() {
@@ -372,33 +381,33 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -e|--echo)
       HASH_ECHO='true'
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     -a|--algorithm)
       HASH_ALGORITHM="${2:-}"
-      unset "args[-$#]"; shift
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     -a*)
       HASH_ALGORITHM="${1#"-a"}"
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     --algorithm=*)
       HASH_ALGORITHM="${1#"--algorithm="}"
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     -p|--path)
       HASH_DIR="${2:-}"
-      unset "args[-$#]"; shift
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     -p*)
       HASH_DIR="${1#"-p"}"
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     --path=*)
       HASH_DIR="${1#"--path="}"
-      unset "args[-$#]"; shift
+      unset "hash_args[-$#]"; shift
       ;;
     *)
       break
