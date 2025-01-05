@@ -90,13 +90,6 @@ hash_index_check() {
   fi
 }
 
-hash_index_init() {
-  local index_file
-  index_file="${HASH_DIR}/$(basename -- "$HASH_INDEX_FILE")"
-  # Create and encrypt index file
-  echo "# $HASH_PROGRAM -- $HASH_VERSION" | cmd_insert -f -m "$index_file"
-}
-
 hash_index_update() {
   # It is important that this command is only run after the 'pass' function
   # successfully makes updates to the system so that the index can stay in
@@ -106,9 +99,8 @@ hash_index_update() {
 
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
 
-  if hash_index_get_entry "$(echo "$1" | cut -f1)"; then
-    hash_index_delete "$(echo "$1" | cut -f1)" || \
-      hash_die "Error: unable to delete entry from index."
+  if hash_index_get_entry "$(echo "$1" | cut -f1)" >/dev/null; then
+    hash_index_delete "$(echo "$1" | cut -f1)"
   fi
 
   { cmd_show "$index_file"; echo "$1"; } | \
@@ -190,16 +182,9 @@ hash_cmd_double_field() {
         "$HASH_DIR/$(echo "$old_entry" | hash_get_salted_path)" \
         "$HASH_DIR/$(echo "$new_entry" | hash_get_salted_path)"
 
-      if [ "$cmd" == "move" ]; then
-        hash_index_delete "$old_path" || \
-          hash_die "Error: unable to delete entry from index."
-      fi
-
-      hash_index_update "$new_entry" || \
-        hash_die "Error: unable to add new entry to index."
-              
+      [[ "$cmd" == "move" ]] && hash_index_delete "$old_path"
+      hash_index_update "$new_entry"
       ;;
-
     generate)
       local path len entry
 
@@ -215,11 +200,8 @@ hash_cmd_double_field() {
         cmd_generate "$@" "$(echo "$entry" | hash_get_salted_path)"
       fi
 
-      hash_index_update "$entry" || \
-        hash_die "Error: unable to add new entry to index."
-
+      hash_index_update "$entry"
       ;;
-
   esac
 }
 
@@ -244,23 +226,15 @@ hash_cmd_single_field() {
         hash_die "Error: password name not found in index."
 
       cmd_delete "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
-
-      hash_index_delete "$path" || \
-        hash_die "Error: unable to delete entry from index."
-
+      hash_index_delete "$path"
       ;;
 
     edit)
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
-        cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
-        hash_index_update "$entry" || \
-          hash_die "Error: unable to add new entry to index."
-
-      else
-        cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
       fi
-
+      cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
+      hash_index_update "$entry"
       ;;
 
     insert)
@@ -268,9 +242,7 @@ hash_cmd_single_field() {
         entry="$(hash_make_entry "$path")"
       fi
       cmd_insert "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
-      hash_index_update "$entry" || \
-        hash_die "Error: unable to add new entry to index."
-      
+      hash_index_update "$entry"
       ;;
       
     show)
@@ -278,7 +250,6 @@ hash_cmd_single_field() {
         hash_die "Error: password name not found in index."
 
       cmd_show "$@" "$(echo "$entry" | hash_get_salted_path)"
-
       ;;
   esac
 }
@@ -297,6 +268,11 @@ hash_cmd_find() {
       cmd_grep "$@"
       ;;
   esac
+}
+
+hash_cmd_init() {
+  hash_index_check && hash_die "Error: pass-hash index already exists."
+  echo "# $HASH_PROGRAM -- $HASH_VERSION" | hash_index_update 
 }
 
 hash_cmd_usage() {
@@ -388,11 +364,6 @@ ENVIRONMENT VARIABLES
     again.
 
 EOF
-}
-
-hash_cmd_init() {
-  hash_index_check && hash_die "Error: pass-hash index already exists."
-  hash_index_init
 }
 
 hash_args=( "$@" )
