@@ -19,14 +19,9 @@ hash_die() {
 }
 
 hash_sum() {
-  # This is the workhorse function of pass-hash, and any change to this needs
-  # to be done with backwards-compatibility in mind.
-  #
   # A default of SHA is assumed, but easily overriden in the future with
-  # a new case entry.
-  # 
-  # Testing needs to be done across different POSIX systems to ensure
-  # these SHA commands function correctly.
+  # a new case entry. Testing needs to be done across different POSIX systems
+  # to ensure these SHA commands function correctly.
   #
   # This deviates a bit from how 'pass' handles such situations, like in tmpdir
   # in that it inefficiently processes some constants like which programs are
@@ -34,7 +29,6 @@ hash_sum() {
   # conceivably be a mixed use of algorithms in situations with older index
   # entries, a re-check of commands would be neccessary anyways. So, a cleaner
   # and more readable code was opted for a slight increase in efficiency.
-  
   local algo_command algo_bit
 
   case "$HASH_ALGORITHM" in
@@ -60,28 +54,6 @@ hash_sum() {
   esac
 }
 
-hash_secure_input() {
-  # Early drafts of this script used stty -echo and read input directly
-  # into the hash_sum which meant the plain text of the password name was never
-  # kept in a variable. However, this broke compatibilty with 'pass' functions
-  # like 'cmd_insert' which also expects passwords to come in on the standard
-  # input. Author considers this acceptable as it is no more or less secure
-  # than how 'pass' handles the passwords and files itself.
-
-  local input input_again
-  if [[ ! -t 0 ]] || [ "$HASH_ECHO" == 'true' ]; then
-    read -r -p "Enter $1: " input || exit 1
-  else
-    read -r -s -p "Enter $1: " input || exit 1
-    echo
-    read -r -s -p "Re-enter $1: " input_again || exit 1
-    echo
-    [[ "$input" == "$input_again" ]] || \
-      hash_die "Error: $1 doesn't match."
-  fi
-  echo "$input" | hash_sum 
-}
-
 hash_salt() {
   # Updating the first half of this pipe will not break future functionality.
   # Using 4096 lines of /dev/urandom is probably not necessary.
@@ -91,9 +63,6 @@ hash_salt() {
 hash_make_entry() {
   # TAB Delineated table
   # <hashed password name>  | <hashed salt> | <algorithm:command>
-  #
-  # Future versions should be able to add more data or meta data AFTER these
-  # entries without breaking backwards compatibility.
   printf '%s\t%s\t%s\n' "$1" "$(hash_salt)" "$HASH_ALGORITHM"
 }
 
@@ -114,16 +83,11 @@ hash_get_salted_path() {
 
 #### Index Functions ####
 hash_index_check() {
-  if [ -f "${HASH_INDEX_FILE}.gpg" ]; then
-    # GPG-encrypted pass (password-store)
-    HASH_INDEX_FILE="${HASH_INDEX_FILE}.gpg"
-  elif [ -f "${HASH_INDEX_FILE}.age" ]; then
-    # age-encrypted pass (passage)
-    HASH_INDEX_FILE="${HASH_INDEX_FILE}.age"
+  if [ -f "${HASH_INDEX_FILE}.gpg" ] || [ -f "${HASH_INDEX_FILE}.age" ]; then
+    return 0
   else
     return 1
   fi
-
 }
 
 hash_index_init() {
@@ -138,10 +102,7 @@ hash_index_update() {
   # successfully makes updates to the system so that the index can stay in
   # sync.
   local index_file
-  case "$HASH_INDEX_FILE" in
-    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
-    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
-  esac
+  index_file="${HASH_DIR}/$(basename -- "$HASH_INDEX_FILE")"
 
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
 
@@ -151,7 +112,7 @@ hash_index_update() {
   fi
 
   { cmd_show "$index_file"; echo "$1"; } | \
-    cmd_insert -f -m "$index_file" >/dev/null
+    cmd_insert -f -m "$index_file"
 }
 
 hash_index_delete() {
@@ -161,10 +122,7 @@ hash_index_delete() {
   # by not needing to pass the non-salted hash of the pass-name
   # to an external program as an argument.
   local line index_file
-  case "$HASH_INDEX_FILE" in
-    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
-    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
-  esac
+  index_file="${HASH_DIR}/$(basename -- "$HASH_INDEX_FILE")"
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
   cmd_show "$index_file" | \
     while read -r line; do
@@ -172,7 +130,7 @@ hash_index_delete() {
         "$1"\	*) continue ;;
         *) echo "$line"   ;;
       esac
-    done | cmd_insert -f -m "$index_file" >/dev/null
+    done | cmd_insert -f -m "$index_file"
 }
 
 hash_index_get_entry() {
@@ -181,10 +139,7 @@ hash_index_get_entry() {
   # with the non-salted hash of the pass-name, which might reduce the
   # possiblity of exposing a secret.
   local line index_file
-  case "$HASH_INDEX_FILE" in
-    *.gpg)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.gpg}")";;
-    *.age)  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE%.age}")";;
-  esac
+  index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE}")"
 
   [[ -n "${1:-}" ]] || hash_die "Error: password name/path cannot be empty."
 
@@ -196,100 +151,152 @@ hash_index_get_entry() {
 }
 
 #### Pass Command Shim Functions ####
-hash_cmd_copy_move() {
-  local args cmd path old_path new_path old_entry new_entry
+hash_cmd_double_field() {
+  local cmd msg field1 field2
   hash_index_check || hash_die "Error: no pass-hash index."
-  args=( "$@" )
-  cmd="$1" # copy|move
-  path="$(hash_secure_input "<old password name> <new password name>")" || \
-    hash_die "Error: unable to get password names via standard in."
+  cmd="$1" # copy|move|generate
+  case "$cmd" in
+    copy|move)
+      msg="<old password name> <new password name>"
+      ;;
+    generate)
+      msg="<password name> <password length (optional)>"
+      ;;
+  esac
   
-  # shellcheck disable=SC2086
-  set -- $path
-  old_path="${1:-}"
-  new_path="${2:-}"
-
-  old_entry="$(hash_index_get_entry "$old_path")" || \
-    hash_die "Error: current password name not found in hash index."
-
-  new_entry="$(hash_make_entry "$new_path")"
-
-  cmd_copy_move "${args[@]}" \
-    "$HASH_DIR/$(echo "$old_entry" | hash_get_salted_path)" \
-    "$HASH_DIR/$(echo "$new_entry" | hash_get_salted_path)"
-
-  if [ "$cmd" == "move" ]; then
-    hash_index_delete "$old_path" || \
-      hash_die "Error: unable to delete entry from index."
-  fi
-
-  hash_index_update "$new_entry" || \
-    hash_die "Error: unable to add new entry to index."
-}
-
-hash_cmd_delete() {
-  local path entry
-  hash_index_check || hash_die "Error: no pass-hash index."
-  path="$(hash_secure_input "password name")" || \
-    hash_die "Error: unable to get password names via standard in."
-  entry="$(hash_index_get_entry "$path")" || \
-    hash_die "Error: password name not found in index."
-
-  cmd_delete "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
-
-  hash_index_delete "$path" || \
-    hash_die "Error: unable to delete entry from index."
-}
-
-hash_cmd_edit() {
-  local path entry
-  hash_index_check || hash_die "Error: no pass-hash index."
-  path="$(hash_secure_input "password name")" || \
-    hash_die "Error: unable to get password names via standard in."
-    
-  if ! entry="$(hash_index_get_entry "$path")"; then
-    entry="$(hash_make_entry "$path")"
-    cmd_edit "$(echo "$entry" | hash_get_salted_path)"
-    hash_index_update_entry "$entry" || \
-      hash_die "Error: unable to add new entry to index."
+  if [ "$HASH_ECHO" == 'true' ]; then
+    read -r -p "Enter $msg: " field1 field2 || exit 1
   else
-    cmd_edit "$(echo "$entry" | hash_get_salted_path)"
+    read -r -p "Enter $msg: " -s field1 field2 || exit 1
   fi
+
+  [[ -n "$field1" ]] || hash_die "Error: $msg is empty."
+
+  case "$cmd" in
+    copy|move)
+      local old_path new_path old_entry new_entry 
+
+      [[ -n "$field2" ]] || hash_die "Error: missing destination path."
+
+      old_path="$(echo "$field1" | hash_sum)"
+      new_path="$(echo "$field2" | hash_sum)"
+
+      old_entry="$(hash_index_get_entry "$old_path")" || \
+        hash_die "Error: current password name not found in hash index."
+
+      new_entry="$(hash_make_entry "$new_path")"
+
+      cmd_copy_move "$@" \
+        "$HASH_DIR/$(echo "$old_entry" | hash_get_salted_path)" \
+        "$HASH_DIR/$(echo "$new_entry" | hash_get_salted_path)"
+
+      if [ "$cmd" == "move" ]; then
+        hash_index_delete "$old_path" || \
+          hash_die "Error: unable to delete entry from index."
+      fi
+
+      hash_index_update "$new_entry" || \
+        hash_die "Error: unable to add new entry to index."
+              
+      ;;
+
+    generate)
+      local path len entry
+
+      path="$(echo "$field1" | hash_sum)"
+      len="${field2:-}"
+
+      [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
+
+      if ! entry="$(hash_index_get_entry "$path")"; then
+        entry="$(hash_make_entry "$path")"
+        cmd_generate "$@" "$(echo "$entry" | hash_get_salted_path)"
+      else
+        cmd_generate "$@" "$(echo "$entry" | hash_get_salted_path)"
+      fi
+
+      hash_index_update "$entry" || \
+        hash_die "Error: unable to add new entry to index."
+
+      ;;
+
+  esac
+}
+
+hash_cmd_single_field() {
+  local cmd path entry
+  hash_index_check || hash_die "Error: no pass-hash index."
+  cmd="$1" # delete|edit|insert|show
+  shift
+
+  if [ "$HASH_ECHO" == 'true' ]; then
+    read -r -p "Enter password name: " path || exit 1
+  else
+    read -r -p "Enter password name: " -s path || exit 1
+  fi
+
+  [[ -n "$path" ]] || hash_die "Empty password name."
+  path="$(echo "$path" | hash_sum)"
+
+  case "$cmd" in
+    delete)
+      entry="$(hash_index_get_entry "$path")" || \
+        hash_die "Error: password name not found in index."
+
+      cmd_delete "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+
+      hash_index_delete "$path" || \
+        hash_die "Error: unable to delete entry from index."
+
+      ;;
+
+    edit)
+      if ! entry="$(hash_index_get_entry "$path")"; then
+        entry="$(hash_make_entry "$path")"
+        cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
+        hash_index_update "$entry" || \
+          hash_die "Error: unable to add new entry to index."
+
+      else
+        cmd_edit "$@" "$(echo "$entry" | hash_get_salted_path)"
+      fi
+
+      ;;
+
+    insert)
+      if ! entry="$(hash_index_get_entry "$path")"; then
+        entry="$(hash_make_entry "$path")"
+      fi
+      cmd_insert "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      hash_index_update "$entry" || \
+        hash_die "Error: unable to add new entry to index."
+      
+      ;;
+      
+    show)
+      entry="$(hash_index_get_entry "$path")" || \
+        hash_die "Error: password name not found in index."
+
+      cmd_show "$@" "$(echo "$entry" | hash_get_salted_path)"
+
+      ;;
+  esac
 }
 
 hash_cmd_find() {
-  echo "'find' command does not work with pass-hash store." >&2
-  cmd_find "$@"
-}
-
-hash_cmd_generate() {
-  local args path len entry
-  hash_index_check || hash_die "Error: no pass-hash index."
-  args=( "$@" )
-  path="$(hash_secure_input "<password name> <pass-length (optional)>")" || \
-    hash_die "Error: unable to get password names via standard in."
-
-  # shellcheck disable=SC2086
-  set -- $path
-  path="$1"
-  len="${2:-}"
-
-  [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
-
-  if ! entry="$(hash_index_get_entry "$path")"; then
-    entry="$(hash_make_entry "$path")"
-    cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
-  else
-    cmd_generate "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
-  fi
-
-  hash_index_update_entry "$entry" || \
-      hash_die "Error: unable to add new entry to index."
-}
-
-hash_cmd_grep() {
+  local cmd
   export PREFIX="$HASH_DIR"
-  cmd_grep "$@"
+  cmd="$1" # find|grep
+  shift
+  case "$cmd" in
+    find)
+      echo "[pass-hash] Info: pass-hash store is hashed." >&2
+      cmd_find "$@"
+      ;;
+    grep)
+      cmd_grep "$@"
+      ;;
+  esac
 }
 
 hash_cmd_usage() {
@@ -318,9 +325,22 @@ OPTIONS
                                   echo on pass (e.g., 'pass hash insert'), 
                                   this flag will need to be passed again.
 
+  -p|--path <dir>                 Set the subdirectory path of the pass-hash
+                                  store. Overrides PASSWORD_STORE_HASH_DIR.
+                                  
+
 SYNOPSIS
   In most cases, pass-hash acts as a shim for standard pass commands.
   Simply precede 'hash' to any commands seen in 'pass help.'
+
+  pass-hash extends standard pass in four ways:
+    1)  Password names are accepted via standard in, instead of as arguments.
+    2)  Password names are "hashed" with a randomly generated salt using an
+        external program (default: SHA512) and kept with the hashed salt and
+        the algorithm used to hash each in an encrypyted index.
+    3)  A secondary subdirectory is used to store the hashed password names.
+    4)  Every other function such as encrypting and decrypting the files, git
+        actions, etc., is handled by pass directly.
 
   Unique to pass-hash is the password name, used as a path in standard pass,
   can be passed via standard in (STDIN). In cases where pass expects input
@@ -328,22 +348,16 @@ SYNOPSIS
   the case of 'pass hash insert,' the first line of standard input would be
   the password name, the second line of standard input would be the password.
 
-  This is the recommended way to use the pass-hash extension, as the assumed
-  security model is to keep the name of the password obfuscated (whereas the
-  model for standard 'pass' is to only encrypt the password itself). However,
-  to keep backwards compatibility, pass-hash will also accept password names 
-  as arguments, but this is not recommended.
-
   Other Exceptions:
     - The hash index keeps a hashed version of your password name, a
       randomly (/dev/urandom) generated salt, and the algorithm each was
       hashed with. Meaning: your plaintext password name is not kept, which
       does break some functionality from standard pass. Any function that
-      requires knowing the plaintext of the name will not work as expected if
-      the full password name is not provided, including 'pass hash show' and
+      requires pass knowing the plaintext of the name will not work as expected
+      if the full password name is not provided, including 'pass hash show' and
       'pass hash find'.
 
-    - Unlike 'pass', you can only copy, move, and delete hashed by it's
+    - Unlike 'pass', you can only copy, move, and delete a hashed file by it's
       complete password name, as pass-hash doesn't create a full path of 
       separate directories for the password name. They are single hashed files
       stored in a separate subdirectory set by PASSWORD_STORE_HASH_DIR.
@@ -364,9 +378,11 @@ ENVIRONMENT VARIABLES
     found.
 
   PASSWORD_STORE_HASH_DIR
-    Sub-directory for the hashed password store. Default: .pass_hash
+    Default: .pass_hash
+    Sub-directory for the hashed password store.
 
   PASSWORD_STORE_HASH_ECHO
+    Default: false
     Boolean to echo back user input of password names. Note: this only applies
     to the hash extension. For standard pass commands, this will need to be set
     again.
@@ -378,45 +394,6 @@ hash_cmd_init() {
   hash_index_check && hash_die "Error: pass-hash index already exists."
   hash_index_init
 }
-
-hash_cmd_insert() {
-  local args path entry
-  hash_index_check || hash_die "Error: no pass-hash index."
-  args=( "$@" )
-
-  path="$(hash_secure_input "password name")" || \
-    hash_die "Error: unable to get password name from standard in."
-
-  if ! entry="$(hash_index_get_entry "$path")"; then
-    entry="$(hash_make_entry "$path")"
-  fi
-
-  cmd_insert -m "${args[@]}" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
-
-  hash_index_update_entry "$entry" || \
-      hash_die "Error: unable to add new entry to index."
-}
-
-hash_cmd_show() {
-  local args path entry
-  hash_index_check || hash_die "Error: no pass-hash index."
-  args=( "$@" )
-  path="$(hash_secure_input "password name")" || \
-    hash_die "Error: unable to get password name from standard in."
-
-  [[ -n "$path" ]] || hash_die "Error: paths are hashed, nothing to show."
-
-  entry="$(hash_index_get_entry "$path")" || \
-    hash_die "Error: password name not found in index."
-
-  cmd_show "${args[@]}" "$(echo "$entry" | hash_get_salted_path)"
-}
-
-#### Unique pass-hash command functions ####
-# hash_cmd_import() {
-# # Import passwords from the standard store into the hashed store with option
-#   to move or copy.
-# }
 
 hash_args=( "$@" )
 # Parse pass-hash specific flags
@@ -439,6 +416,19 @@ while [ "$#" -gt 0 ]; do
       HASH_ALGORITHM="${1#"--algorithm="}"
       unset "args[-$#]"; shift
       ;;
+    -p|--path)
+      HASH_DIR="${2:-}"
+      unset "args[-$#]"; shift
+      unset "args[-$#]"; shift
+      ;;
+    -p*)
+      HASH_DIR="${1#"-p"}"
+      unset "args[-$#]"; shift
+      ;;
+    --path=*)
+      HASH_DIR="${1#"--path="}"
+      unset "args[-$#]"; shift
+      ;;
     *)
       break
       ;;
@@ -449,18 +439,17 @@ HASH_INDEX_FILE="${PREFIX}/${HASH_DIR}/.hash-index"
 
 set -- "${hash_args[@]}"
 case "$1" in
-  copy|cp) shift;           hash_cmd_copy_move "copy" "$@" ;;
-  delete|rm|remove) shift;  hash_cmd_delete "$@" ;;
-  edit) shift;              hash_cmd_edit "$@" ;;
-  find|search) shift;       hash_cmd_find "$@" ;;
-  generate) shift;          hash_cmd_generate "$@" ;;
-  grep) shift;              hash_cmd_grep "$@" ;;
+  copy|cp) shift;           hash_cmd_double_field "copy" "$@" ;;
+  delete|rm|remove) shift;  hash_cmd_single_field "delete" "$@" ;;
+  edit) shift;              hash_cmd_single_field "edit" "$@" ;;
+  find|search) shift;       hash_cmd_find "find" "$@" ;;
+  generate) shift;          hash_cmd_double_field "generate" "$@" ;;
+  grep) shift;              hash_cmd_find "grep" "$@" ;;
   help|--help) shift;       hash_cmd_usage ;;
   init) shift;              hash_cmd_init "$@" ;;
-  import) shift;            hash_cmd_import "$@" ;;
-  insert|add) shift;        hash_cmd_insert "$@" ;;
-  rename|mv) shift;         hash_cmd_copy_move "move" "$@" ;;
-  show|ls|list) shift;      hash_cmd_show "$@" ;;
+  insert|add) shift;        hash_cmd_single_field "insert" "$@" ;;
+  rename|mv) shift;         hash_cmd_double_field "move" "$@" ;;
+  show|ls|list) shift;      hash_cmd_single_field "show" "$@" ;;
   *)                        hash_cmd_usage ;;
 esac
 
