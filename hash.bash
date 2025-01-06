@@ -145,7 +145,7 @@ hash_index_get_entry() {
 
 #### Pass Command Shim Functions ####
 hash_cmd_double_field() {
-  local cmd msg field1 field2
+  local cmd args msg field1 field2
   hash_index_check || hash_die "Error: no pass-hash index."
   cmd="$1" # copy|move|generate
   case "$cmd" in
@@ -157,16 +157,35 @@ hash_cmd_double_field() {
       shift # unset 'generate' from arguments
       ;;
   esac
-  
-  if [ "$HASH_ECHO" == 'true' ]; then
-    read -r -p "Enter $msg: " field1 field2 || exit 1
-    [[ -t 0 ]] && echo
-  else
-    read -r -p "Enter $msg: " -s field1 field2 || exit 1
-    [[ -t 0 ]] && echo
+
+  args=( "$@" )
+  # find if path is an argument
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) shift ;;
+      *)
+        if [ -n "$field1" ]; then
+          field2="$1"; unset "args[-$#]" 
+        else
+          field1="$1"; unset "args[-$#]" 
+        fi
+        ;;
+    esac
+  done
+
+  if [ -z "$field1" ]; then
+    if [ "$HASH_ECHO" == 'true' ]; then
+      read -r -p "Enter $msg: " field1 field2 || exit 1
+      [[ -t 0 ]] && echo
+    else
+      read -r -p "Enter $msg: " -s field1 field2 || exit 1
+      [[ -t 0 ]] && echo
+    fi
   fi
 
-  [[ -n "$field1" ]] || hash_die "Error: $msg is empty."
+  [[ -n "$field1" ]] || hash_die "Error: no input."
+
+  set -- "${args[@]}"
 
   case "$cmd" in
     copy|move)
@@ -210,20 +229,55 @@ hash_cmd_double_field() {
 }
 
 hash_cmd_single_field() {
-  local cmd path entry
+  local cmd args path entry
   hash_index_check || hash_die "Error: no pass-hash index."
   cmd="$1" # delete|edit|insert|show
   shift
+  args=( "$@" )
+  # find if path is an argument
+  while [ "$#" -gt 0 ]; do
+    case "$cmd" in
+      delete) # [--recursive,-r] [--force,-f] pass-name
+        case "$1" in
+          -*) shift ;;
+          *) path="$1"; unset "args[-$#]" ; break ;;
+        esac
+        ;;
+      edit) # pass-name
+        case "$1" in
+          *) path="$1"; unset "args[-$#]" ; break ;;
+        esac
+        ;;
+      insert) # [--echo,-e | --multiline,-m] [--force,-f] pass-name 
+        case "$1" in
+          -*) shift ;;
+          *) path="$1"; unset "args[-$#]" ; break ;;
+        esac
+        ;;
+      show) # [--clip[=line-number],-c[line-number]] pass-name
+        case "$1" in
+          -c|--clip) shift 2 ;;
+          -c*|--clip=*) shift 1 ;;
+          *) path="$1"; unset "args[-$#]" ; break ;;
+        esac
+        ;;
+    esac
+  done
 
-  if [ "$HASH_ECHO" == 'true' ]; then
-    read -r -p "Enter password name: " path || exit 1
-  else
-    read -r -p "Enter password name: " -s path || exit 1
-    [[ -t 0 ]] && echo
+  if [ -z "$path" ]; then
+    if [ "$HASH_ECHO" == 'true' ]; then
+      read -r -p "Enter password name: " path || exit 1
+    else
+      read -r -p "Enter password name: " -s path || exit 1
+      [[ -t 0 ]] && echo
+    fi
   fi
 
-  [[ -n "$path" ]] || hash_die "Empty password name."
-  path="$(echo "$path" | hash_sum)" || exit 1
+  if [ -n "$path" ]; then
+    path="$(echo "$path" | hash_sum)" || exit 1
+  fi
+
+  set -- "${args[@]}"
 
   case "$cmd" in
     delete)
