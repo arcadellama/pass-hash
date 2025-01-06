@@ -339,15 +339,15 @@ hash_cmd_init() {
 }
 
 hash_cmd_usage() {
-  cat <<-EOF
-NAME
-  $HASH_PROGRAM $HASH_VERSION
+  cat <<-_EOF
+$HASH_PROGRAM $HASH_VERSION
+Password Store Extension (https://passwordstore.org)
 
-USAGE
-  $PROGRAM hash [-a|--algorithm "<name>:<command>"] [-e|--echo] [COMMAND]
+Usage:
+  $PROGRAM hash [OPTIONS] COMMAND
 
-OPTIONS
-  -a|--algorithm "<name:command>" Set the algorithm used in hashing password  
+Options:
+  [-a|--algorithm 'name:command'] Set the algorithm used in hashing password  
                                   names and salts. Argument is a quoted string
                                   with the name of the algorithm and the
                                   command used to use it separated by a ':'.
@@ -358,17 +358,20 @@ OPTIONS
                                   PASSWORD_STORE_HASH_ALGORITHM.
                                   See ENVIRONMENT VARIALBLES for more info.
 
-  -e|--echo                       Turn on local echo for entry of password
+  [-e|--echo]                     Turn on local echo for entry of password
                                   names. Only applies to the password name 
                                   functionality of pass-hash. To also enable
                                   echo on pass (e.g., 'pass hash insert'), 
                                   this flag will need to be passed again.
 
-  -p|--path <dir>                 Set the subdirectory path of the pass-hash
+  [-h|--help]                     This message.
+
+
+  [-p|--path dir]                 Set the subdirectory path of the pass-hash
                                   store. Overrides PASSWORD_STORE_HASH_DIR.
                                   
 
-SYNOPSIS
+Synposis:
   In most cases, pass-hash acts as a shim for standard pass commands.
   Simply precede 'hash' to any commands seen in 'pass help.'
 
@@ -404,7 +407,7 @@ SYNOPSIS
     - 'pass hash init' is a separate command from 'pass init', it's only job
       is to create and encrypt the hash index.
 
-ENVIRONMENT VARIABLES
+Environment Variables:
 
   PASSWORD_STORE_HASH_ALGORITHM
     Default: "SHA512"
@@ -426,7 +429,7 @@ ENVIRONMENT VARIABLES
     to the hash extension. For standard pass commands, this will need to be set
     again.
 
-EOF
+_EOF
 }
 
 hash_args=( "$@" )
