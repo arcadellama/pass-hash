@@ -12,6 +12,14 @@ test_expect_success 'Test "rm" command' '
   "$PASS" hash show cred1 || true
 '
 
+test_expect_success 'Test "rm" command via stdin' '
+	"$PASS" init $KEY1 &&
+	"$PASS" hash init &&
+	"$PASS" hash generate cred1 43 &&
+	echo "cred1" | "$PASS" hash rm && 
+  "$PASS" hash show cred1 || true
+'
+
 test_expect_success 'Test "rm" command with spaces' '
 	"$PASS" hash generate "hello i have spaces" 43 &&
 	"$PASS" show "hello i have spaces" &&
