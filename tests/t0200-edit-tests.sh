@@ -14,5 +14,15 @@ test_expect_success 'Test "edit" command' '
 	"$PASS" hash edit cred1 &&
 	[[ $("$PASS" hash show cred1) == "$FAKE_EDITOR_PASSWORD" ]]
 '
+test_expect_success 'Test "edit" command via stdin' '
+	"$PASS" init $KEY1 &&
+	"$PASS" hash init &&
+	"$PASS" hash generate cred1 90 &&
+	export FAKE_EDITOR_PASSWORD="big fat fake password" &&
+	export PATH="$TEST_HOME:$PATH"
+	export EDITOR="fake-editor-change-password.sh" &&
+  "$PASS" hash edit <<< "$(echo cred1)" &&
+	[[ $("$PASS" hash show cred1) == "$FAKE_EDITOR_PASSWORD" ]]
+'
 
 test_done

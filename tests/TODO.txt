@@ -1,1 +1,0 @@
-* full standard-in options on all tests
