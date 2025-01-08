@@ -147,7 +147,11 @@ hash_index_get_entry() {
 hash_cmd_double_field() {
   local cmd args msg field1 field2
   hash_index_check || hash_die "Error: no pass-hash index."
+
+  args=( "$@" )
+
   cmd="$1" # copy|move|generate
+  shift
   case "$cmd" in
     copy|move)
       msg="<old password name> <new password name>"
@@ -158,7 +162,6 @@ hash_cmd_double_field() {
       ;;
   esac
 
-  args=( "$@" )
   # find if path is an argument
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -169,6 +172,7 @@ hash_cmd_double_field() {
         else
           field1="$1"; unset "args[-$#]" 
         fi
+        shift
         ;;
     esac
   done
@@ -214,22 +218,18 @@ hash_cmd_double_field() {
       path="$(echo "$field1" | hash_sum)" || exit 1
       len="${field2:-}"
 
-      [[ -n "$len" ]] && export PASSWORD_STORE_GENERATED_LENGTH="$len"
-
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
-        cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
-      else
-        cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       fi
 
+      cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" "$len"
       hash_index_update "$entry"
       ;;
   esac
 }
 
 hash_cmd_single_field() {
-  local cmd args path entry
+  local cmd args path pass entry
   hash_index_check || hash_die "Error: no pass-hash index."
   cmd="$1" # delete|edit|insert|show
   shift
@@ -273,12 +273,15 @@ hash_cmd_single_field() {
     fi
   fi
 
+  read -t 0 && pass="$(cat)"
+
   if [ -n "$path" ]; then
     path="$(echo "$path" | hash_sum)" || exit 1
+  else
+    hash_die "Error: no password name given."
   fi
 
   set -- "${args[@]}"
-
   case "$cmd" in
     delete)
       entry="$(hash_index_get_entry "$path")" || \
@@ -292,7 +295,7 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_edit "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      cmd_edit "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<< "${pass:-}"
       hash_index_update "$entry"
       ;;
 
@@ -300,7 +303,7 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_insert "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      cmd_insert "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<<"${pass:-}"
       hash_index_update "$entry"
       ;;
       
