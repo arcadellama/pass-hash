@@ -148,10 +148,9 @@ hash_cmd_double_field() {
   local cmd args msg field1 field2
   hash_index_check || hash_die "Error: no pass-hash index."
 
-  args=( "$@" )
 
   cmd="$1" # copy|move|generate
-  shift
+
   case "$cmd" in
     copy|move)
       msg="<old password name> <new password name>"
@@ -162,9 +161,11 @@ hash_cmd_double_field() {
       ;;
   esac
 
+  args=( "$@" )
   # find if path is an argument
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      copy|move) shift ;;
       -*) shift ;;
       *)
         if [ -n "$field1" ]; then
