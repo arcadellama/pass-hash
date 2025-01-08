@@ -11,6 +11,13 @@ test_expect_success 'Test "show" command' '
 	"$PASS" hash show cred1
 '
 
+test_expect_success 'Test "show" command via stdin' '
+	"$PASS" init $KEY1 &&
+	"$PASS" hash init &&
+	printf "cred2\n20\n" | "$PASS" hash generate &&
+	echo "cred2" | "$PASS" hash show
+'
+
 test_expect_success 'Test "show" command with spaces' '
 	"$PASS" hash insert -e "I am a cred with lots of spaces"<<<"BLAH!!" &&
 	[[ $("$PASS" hash show "I am a cred with lots of spaces") == "BLAH!!" ]]
@@ -22,7 +29,7 @@ test_expect_success 'Test "show" command with unicode' '
 '
 
 test_expect_success 'Test "show" of nonexistant password' '
-	test_must_fail "$PASS" hash show cred2
+	test_must_fail "$PASS" hash show cred99
 '
 
 test_done

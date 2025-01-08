@@ -14,6 +14,11 @@ test_expect_success 'Basic move command' '
 	"$PASS" hash mv cred1 cred2 &&
   "$PASS" hash show cred1 || "$PASS" hash show cred2
 '
+test_expect_success 'Basic move command via stdin' '
+  "$PASS" hash insert -e <<< "$(printf "cred3\n%s\n" "$INITIAL_PASSWORD" )" &&
+  "$PASS" hash mv <<< "$(echo "cred3 cred4")" &&
+  "$PASS" hash show cred3 || "$PASS" hash show cred4
+'
 
 test_expect_success 'Git is consistent' '
 	[[ -z $(git status --porcelain 2>&1) ]]
