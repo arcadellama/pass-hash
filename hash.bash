@@ -6,7 +6,7 @@
 # Please see LICENSE for more information.
 
 readonly HASH_PROGRAM='pass-hash'
-readonly HASH_VERSION='0.1'
+readonly HASH_VERSION='0.2'
 
 HASH_ALGORITHM="${PASSWORD_STORE_HASH_ALGORITHM:-SHA512}"
 HASH_DIR="${PASSWORD_STORE_HASH_DIR:-.pass-hash}"
