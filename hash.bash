@@ -128,6 +128,7 @@ hash_index_delete() {
         *) echo "$line"   ;;
       esac
     done | cmd_insert -f -m "$index_file" | grep -v 'Enter contents of.*'
+
 }
 
 hash_index_get_entry() {
@@ -226,7 +227,8 @@ hash_cmd_double_field() {
         entry="$(hash_make_entry "$path")"
       fi
 
-      cmd_generate "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" "$len"
+      cmd_generate "$@" \
+        "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" "$len"
       hash_index_update "$entry"
       ;;
   esac
@@ -300,8 +302,7 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_edit \
-        "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<< "${pass:-}"
+      cmd_edit "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       hash_index_update "$entry"
       ;;
 
@@ -345,8 +346,7 @@ hash_cmd_init() {
   hash_index_check && \
     { echo >&2 "[pass-hash] pass-hash index already exists."; return 0; }
   # shellcheck disable=SC2002
-  cat /dev/null | cmd_insert -f -m "$index_file" | \
-    grep -v 'Enter contents of.*'
+  cmd_insert -f -e "$index_file" <<< "$(cat /dev/null)"
 }
 
 hash_cmd_usage() {
