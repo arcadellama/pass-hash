@@ -287,7 +287,7 @@ hash_cmd_single_field() {
 
   if [ -n "$path" ]; then
     path="$(echo "$path" | hash_sum)" || exit 1
-  else
+  elif [ "$cmd" != "show" ]; then
     hash_die "Error: no password name given."
   fi
 
@@ -324,10 +324,14 @@ hash_cmd_single_field() {
       ;;
       
     show)
-      entry="$(hash_index_get_entry "$path")" || \
-        hash_die "Error: password name not found in index."
+      if [ -n "$path" ]; then
+        entry="$(hash_index_get_entry "$path")" || \
+          hash_die "Erorr: password name not found."
 
-      cmd_show "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+        cmd_show "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      else
+        cmd_show "$@" "$HASH_DIR"
+      fi
       ;;
   esac
 }
