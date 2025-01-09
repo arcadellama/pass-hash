@@ -326,7 +326,7 @@ hash_cmd_single_field() {
     show)
       if [ -n "$path" ]; then
         entry="$(hash_index_get_entry "$path")" || \
-          hash_die "Erorr: password name not found."
+          hash_die "Error: password name not found."
 
         cmd_show "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       else
