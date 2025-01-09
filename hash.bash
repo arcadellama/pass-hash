@@ -274,6 +274,7 @@ hash_cmd_single_field() {
     fi
   fi
 
+  # Capture any other lines of standard in
   read -t 0 && pass="$(cat)"
 
   if [ -n "$path" ]; then
@@ -296,7 +297,8 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_edit "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<< "${pass:-}"
+      cmd_edit \
+        "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<< "${pass:-}"
       hash_index_update "$entry"
       ;;
 
@@ -304,7 +306,8 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_insert "$@" "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<<"${pass:-}"
+      cmd_insert "$@" \
+        "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<<"${pass:-}"
       hash_index_update "$entry"
       ;;
       
@@ -322,9 +325,9 @@ hash_cmd_find() {
   export PREFIX="$PREFIX/$HASH_DIR"
   cmd="$1" # find|grep
   shift
-  echo "[pass-hash] Info: pass-hash store is hashed." >&2
   case "$cmd" in
     find)
+      echo "[pass-hash] Info: pass-hash store is hashed." >&2
       cmd_find "$@"
       ;;
     grep)
@@ -336,7 +339,8 @@ hash_cmd_find() {
 hash_cmd_init() {
   local index_file
   index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE}")"
-  hash_index_check && hash_die "Error: pass-hash index already exists."
+  hash_index_check && \
+    { echo >&2 "[pass-hash] pass-hash index already exists."; return 0; }
   # shellcheck disable=SC2002
   cat /dev/null | cmd_insert -f -m "$index_file" | \
     grep -v 'Enter contents of.*'
