@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2004
-
+#
+# pass-hash: a Password Store (https://passwordstore.org) extension.
+#
 # Copyright (C) 2024 Justin Teague <arcadellama@posteo.net>.
-# This file is licensed under the GPLv2+.
-# Please see LICENSE for more information.
+# This file is licensed under the GPLv3+. See COPYING for more information.
+# All rights reserved.
+#
 
 readonly HASH_PROGRAM='pass-hash'
 readonly HASH_VERSION='0.2'
