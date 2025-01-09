@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2004
 #
 # pass-hash: a Password Store (https://passwordstore.org) extension.
 #
 # Copyright (C) 2024 Justin Teague <arcadellama@posteo.net>.
-# This file is licensed under the GPLv3+. See COPYING for more information.
 # All rights reserved.
-#
+# This file is licensed under the GPLv3+. See COPYING for more information.
+
 
 readonly HASH_PROGRAM='pass-hash'
 readonly HASH_VERSION='0.2'
@@ -32,6 +31,10 @@ hash_sum() {
   # conceivably be a mixed use of algorithms in situations with older index
   # entries, a re-check of commands would be neccessary anyways. So, a cleaner
   # and more readable code was opted for a slight increase in efficiency.
+  #
+  # Most importantly, the alternate command must still output the 'hash'
+  # as the first entry.
+
   local algo_command algo_bit
 
   case "$HASH_ALGORITHM" in
@@ -310,8 +313,13 @@ hash_cmd_single_field() {
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
       fi
-      cmd_insert "$@" \
-        "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<<"${pass:-}"
+      if [ -n "$pass" ]; then
+        cmd_insert "$@" \
+          "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)" <<<"${pass:-}"
+      else
+        cmd_insert "$@" \
+          "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      fi
       hash_index_update "$entry"
       ;;
       
@@ -341,11 +349,24 @@ hash_cmd_find() {
 }
 
 hash_cmd_init() {
-  local index_file
+  local args path index_file
+  args=( "$@" )
+  while [ "$#" -gt 0 ]; do
+    case "$1" in # [--path=subfolder,-p subfolder] gpg-id
+      -p|--path)
+        path="2"; unset "args[-$#]"; shift; unset "args[-$#]"; shift ;;
+      -p*)
+        path="${1#"-p"}"; unset "args[-$#]"; shift ;;
+      --path=*)
+        path="${1#"--path="}"; unset "args[-$#]"; shift ;;
+      *) break ;;
+    esac
+  done
+
+  HASH_DIR="${path:-"$HASH_DIR"}"
+  cmd_init -p "$HASH_DIR" "$@"
+
   index_file="${HASH_DIR}/$(basename -- "${HASH_INDEX_FILE}")"
-  hash_index_check && \
-    { echo >&2 "[pass-hash] pass-hash index already exists."; return 0; }
-  # shellcheck disable=SC2002
   cmd_insert -f -e "$index_file" <<< "$(cat /dev/null)"
 }
 

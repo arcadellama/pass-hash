@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 test_expect_success 'Test "edit" command' '
 	"$PASS" init $KEY1 &&
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	"$PASS" hash generate cred1 90 &&
 	export FAKE_EDITOR_PASSWORD="big fat fake password" &&
 	export PATH="$TEST_HOME:$PATH"
@@ -16,7 +16,7 @@ test_expect_success 'Test "edit" command' '
 '
 test_expect_success 'Test "edit" command via stdin' '
 	"$PASS" init $KEY1 &&
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	"$PASS" hash generate cred1 90 &&
 	export FAKE_EDITOR_PASSWORD="big fat fake password" &&
 	export PATH="$TEST_HOME:$PATH"

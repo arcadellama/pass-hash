@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 test_expect_success 'Test "insert" command' '
 	"$PASS" init $KEY1 &&
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	echo "Hello world" | "$PASS" hash insert -e cred1 &&
 	[[ $("$PASS" hash show cred1) == "Hello world" ]]
 '

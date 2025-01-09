@@ -19,7 +19,7 @@ test_expect_success 'Make sure we can initialize our test store' '
 '
 
 test_expect_success 'Make sure we can initialize our pass-hash test store' '
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	[[ -e "$PASSWORD_STORE_DIR/.pass-hash" ]] &&
 	[[ -e "$PASSWORD_STORE_DIR/.pass-hash/.hash-index.gpg" ]]
 '

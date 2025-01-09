@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 test_expect_success 'Test "rm" command' '
 	"$PASS" init $KEY1 &&
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	"$PASS" hash generate cred1 43 &&
 	"$PASS" hash rm cred1 && 
   "$PASS" hash show cred1 || true
@@ -14,7 +14,7 @@ test_expect_success 'Test "rm" command' '
 
 test_expect_success 'Test "rm" command via stdin' '
 	"$PASS" init $KEY1 &&
-	"$PASS" hash init &&
+	"$PASS" hash init $KEY1 &&
 	"$PASS" hash generate cred1 43 &&
 	echo "cred1" | "$PASS" hash rm && 
   "$PASS" hash show cred1 || true

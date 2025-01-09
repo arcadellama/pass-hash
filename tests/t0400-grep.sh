@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 . ./setup.sh
 
 test_expect_success 'Make sure grep prints normal lines' '
-	"$PASS" init $KEY1 && "$PASS" hash init &&
+	"$PASS" init $KEY1 && "$PASS" hash init $KEY1 &&
 	"$PASS" hash insert -e blah1 <<<"hello" &&
 	"$PASS" hash insert -e blah2 <<<"my name is" &&
 	"$PASS" hash insert -e folder/blah3 <<<"I hate computers" &&
@@ -17,7 +17,7 @@ test_expect_success 'Make sure grep prints normal lines' '
 '
 
 test_expect_success 'Test passing the "-i" option to grep' '
-	"$PASS" init $KEY1 && "$PASS" hash init &&
+	"$PASS" init $KEY1 && "$PASS" hash init $KEY1 &&
 	"$PASS" hash insert -e blah6 <<<"I wonder..." &&
 	"$PASS" hash insert -e blah7 <<<"Will it ignore" &&
 	"$PASS" hash insert -e blah8 <<<"case when searching?" &&

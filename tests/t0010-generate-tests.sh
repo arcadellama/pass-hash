@@ -6,14 +6,12 @@ cd "$(dirname "$0")"
 
 test_expect_success 'Test "hash generate" command' '
 	"$PASS" init $KEY1 &&
-  "$PASS" hash init &&
+  "$PASS" hash init $KEY1 &&
 	"$PASS" hash generate cred 19 &&
 	[[ $("$PASS" hash show cred | wc -m) -eq 20 ]]
 '
 test_expect_success 'Test "hash generate" command with stdin no arguments' '
-	"$PASS" init $KEY1 &&
-  "$PASS" hash init &&
-	printf "cred3\n19\n" | "$PASS" hash generate cred1 20 &&
+	echo "cred1 19" | "$PASS" hash generate &&
 	[[ $("$PASS" hash show cred | wc -m) -eq 20 ]]
 '
 
