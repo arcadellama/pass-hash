@@ -253,9 +253,9 @@ hash_cmd_single_field() {
         esac
         ;;
       edit) # pass-name
-          path="$1"; unset "args[-$#]"; break
-          ;;
-      edit)
+        path="$1"; unset "args[-$#]"; break
+        ;;
+      find)
         path="$1"; unset "args[-$#]"; break
         ;;
       insert) # [--echo,-e | --multiline,-m] [--force,-f] pass-name 
@@ -311,10 +311,11 @@ hash_cmd_single_field() {
       ;;
 
     find)
-      if ! entry="$(hash_index_get_entry "$*")"; then
+      if entry="$(hash_index_get_entry "$path")"; then
+        echo "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      else
         hash_die "Error: password name not found in index."
       fi
-      cmd_find "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
       ;;
 
     insert)
