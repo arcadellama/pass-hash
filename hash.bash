@@ -258,6 +258,11 @@ hash_cmd_single_field() {
       find)
         path="$1"; unset "args[-$#]"; break
         ;;
+
+      grep)
+        path="grep"; break
+        ;;
+
       insert) # [--echo,-e | --multiline,-m] [--force,-f] pass-name 
         case "$1" in
           -*) shift ;;
@@ -318,6 +323,11 @@ hash_cmd_single_field() {
       fi
       ;;
 
+    grep)
+      export PREFIX="$PREFIX/$HASH_DIR"
+      cmd_grep "$@"
+      ;;
+
     insert)
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
@@ -341,22 +351,6 @@ hash_cmd_single_field() {
       else
         cmd_show "$@" "$HASH_DIR"
       fi
-      ;;
-  esac
-}
-
-hash_cmd_find() {
-  local cmd
-  cmd="$1" # find|grep
-  shift
-  export PREFIX="$PREFIX/$HASH_DIR"
-  case "$cmd" in
-    find)
-      #echo "[pass-hash] Info: pass-hash store is hashed." >&2
-      cmd_find "$@"
-      ;;
-    grep)
-      cmd_grep "$@"
       ;;
   esac
 }
