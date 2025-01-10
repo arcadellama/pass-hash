@@ -240,7 +240,7 @@ hash_cmd_double_field() {
 hash_cmd_single_field() {
   local cmd args path pass entry
   hash_index_check || hash_die "Error: no pass-hash index."
-  cmd="$1" # delete|edit|insert|show
+  cmd="$1" # delete|edit|find|insert|show
   shift
   args=( "$@" )
   # find if path is an argument
@@ -253,9 +253,10 @@ hash_cmd_single_field() {
         esac
         ;;
       edit) # pass-name
-        case "$1" in
-          *) path="$1"; unset "args[-$#]" ; break ;;
-        esac
+          path="$1"; unset "args[-$#]"; break
+          ;;
+      edit)
+        path="$1"; unset "args[-$#]"; break
         ;;
       insert) # [--echo,-e | --multiline,-m] [--force,-f] pass-name 
         case "$1" in
@@ -309,6 +310,13 @@ hash_cmd_single_field() {
       hash_index_update "$entry"
       ;;
 
+    find)
+      if ! entry="$(hash_index_get_entry "$*")"; then
+        hash_die "Error: password name not found in index."
+      fi
+      cmd_find "$HASH_DIR/$(echo "$entry" | hash_get_salted_path)"
+      ;;
+
     insert)
       if ! entry="$(hash_index_get_entry "$path")"; then
         entry="$(hash_make_entry "$path")"
@@ -338,12 +346,12 @@ hash_cmd_single_field() {
 
 hash_cmd_find() {
   local cmd
-  export PREFIX="$PREFIX/$HASH_DIR"
   cmd="$1" # find|grep
   shift
+  export PREFIX="$PREFIX/$HASH_DIR"
   case "$cmd" in
     find)
-      echo "[pass-hash] Info: pass-hash store is hashed." >&2
+      #echo "[pass-hash] Info: pass-hash store is hashed." >&2
       cmd_find "$@"
       ;;
     grep)
@@ -515,9 +523,9 @@ case "$1" in
   copy|cp) shift;           hash_cmd_double_field "copy" "$@" ;;
   delete|rm|remove) shift;  hash_cmd_single_field "delete" "$@" ;;
   edit) shift;              hash_cmd_single_field "edit" "$@" ;;
-  find|search) shift;       hash_cmd_find "find" "$@" ;;
+  find|search) shift;       hash_cmd_single_field "find" "$@" ;;
   generate) shift;          hash_cmd_double_field "generate" "$@" ;;
-  grep) shift;              hash_cmd_find "grep" "$@" ;;
+  grep) shift;              hash_cmd_single_field "grep" "$@" ;;
   help|--help) shift;       hash_cmd_usage ;;
   init) shift;              hash_cmd_init "$@" ;;
   insert|add) shift;        hash_cmd_single_field "insert" "$@" ;;
